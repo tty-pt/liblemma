@@ -1,10 +1,15 @@
+<p align="center">
+  <img src="assets/logo.png" alt="libstoma logo" width="240" />
+</p>
+
 # libstoma
 
 [![C99](https://img.shields.io/badge/C-C99-555?logo=c)](#)
 [![BSD-2-Clause](https://img.shields.io/badge/License-BSD--2--Clause-blue)](#)
 [![FTS tokenizer](https://img.shields.io/badge/FTS-tokenizer-16A34A)](#)
+[![Recall Kernel Lexical Axis](https://img.shields.io/badge/axis-lexical-blueviolet)](#)
 
-> Accent-sensitive search tokenizer + inverted index.
+> Accent-sensitive search tokenizer, inverted full-text index, and recall kernel lexical axis.
 
 A fast in-memory inverted index and string tokenization library backed by
 `libcorm`. It powers the full-text search (FTS) engine for `hyle`, building an
