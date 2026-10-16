@@ -859,7 +859,7 @@ void *rec_axis_open(const char *spec)
 		 * the same table shape the CLI wrote. */
 		const char *menv = getenv("CORM_MASK");
 		const char *eprim = getenv("CORM_AXIS_PRIMARY");
-		unsigned pmask = 4096 - 1;
+		unsigned pmask = 256 - 1;
 		char *tmp = strdup(spec);
 		char *dir;
 		char *primary = NULL;
