@@ -12,7 +12,6 @@
 #include <string.h>
 #include <locale.h>
 #include <ttypt/corm.h>
-#include <ttypt/rec.h>
 #include "ttypt/lemma.h"
 
 #define MAX_ROWS 300

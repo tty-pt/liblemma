@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <ttypt/corm.h>
-#include <ttypt/rec.h>
 #include "ttypt/lemma.h"
 
 /* 2A-5 lemma — memory+rebuild round-trip.

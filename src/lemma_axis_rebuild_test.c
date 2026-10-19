@@ -26,7 +26,6 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <ttypt/corm.h>
-#include <ttypt/rec.h>
 #include <ttypt/qsys.h>
 #include "ttypt/lemma.h"
 

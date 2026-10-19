@@ -14,7 +14,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <ttypt/rec.h>
+#include <ttypt/corm.h>
 
 /**
  * @brief Fold a UTF-8 string to lowercase, preserving accents.

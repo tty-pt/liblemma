@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <locale.h>
 #include <ttypt/corm.h>
-#include <ttypt/rec.h>
 #include "ttypt/lemma.h"
 
 static int failures = 0;

@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <ttypt/corm.h>
-#include <ttypt/rec.h>
 #include "ttypt/lemma.h"
 
 /* 2A-2 adapter contract: rec_axis_store / rec_axis_unstore /
