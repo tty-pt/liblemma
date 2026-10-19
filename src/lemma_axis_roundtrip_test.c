@@ -4,9 +4,9 @@
 #include <errno.h>
 #include <ttypt/corm.h>
 #include <ttypt/rec.h>
-#include "stoma/stoma.h"
+#include "ttypt/lemma.h"
 
-/* 2A-5 stoma — memory+rebuild round-trip.
+/* 2A-5 lemma — memory+rebuild round-trip.
  *
  * Memory-only, never stale: rebuilt from primary strings. Proves the
  * documented lifecycle plus its complements:
@@ -39,7 +39,7 @@ static int hd_has(unsigned hd, const char *row)
 	return corm_get(hd, row) != NULL;
 }
 
-static int text_finds(stoma_db_t *db, const char *tok, rec_ref_t ref)
+static int text_finds(lemma_db_t *db, const char *tok, rec_ref_t ref)
 {
 	unsigned hd = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF, 0);
 	int handled = 0;
@@ -49,13 +49,13 @@ static int text_finds(stoma_db_t *db, const char *tok, rec_ref_t ref)
 	if (!hd)
 		return 0;
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)ref);
-	n = stoma_query(db, STOMA_AXIS_TEXT_FIELD, tok, hd, &handled);
+	n = lemma_query(db, LEMMA_AXIS_TEXT_FIELD, tok, hd, &handled);
 	found = handled == 1 && n >= 1 && hd_has(hd, rid);
 	corm_close(hd);
 	return found;
 }
 
-static int text_misses(stoma_db_t *db, const char *tok, rec_ref_t ref)
+static int text_misses(lemma_db_t *db, const char *tok, rec_ref_t ref)
 {
 	unsigned hd = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF, 0);
 	int handled = 0;
@@ -64,20 +64,20 @@ static int text_misses(stoma_db_t *db, const char *tok, rec_ref_t ref)
 	if (!hd)
 		return 0;
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)ref);
-	(void)stoma_query(db, STOMA_AXIS_TEXT_FIELD, tok, hd, &handled);
+	(void)lemma_query(db, LEMMA_AXIS_TEXT_FIELD, tok, hd, &handled);
 	miss = handled == 1 && !hd_has(hd, rid);
 	corm_close(hd);
 	return miss;
 }
 
-static int count_hits(stoma_db_t *db, const char *tok)
+static int count_hits(lemma_db_t *db, const char *tok)
 {
 	unsigned hd = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF, 0);
 	int handled = 0;
 	uint32_t n = 0;
 	if (!hd)
 		return -1;
-	n = stoma_query(db, STOMA_AXIS_TEXT_FIELD, tok, hd, &handled);
+	n = lemma_query(db, LEMMA_AXIS_TEXT_FIELD, tok, hd, &handled);
 	corm_close(hd);
 	if (!handled)
 		return 0;
@@ -86,8 +86,8 @@ static int count_hits(stoma_db_t *db, const char *tok)
 
 int main(void)
 {
-	stoma_db_t *db = NULL;
-	stoma_db_t *db2 = NULL;
+	lemma_db_t *db = NULL;
+	lemma_db_t *db2 = NULL;
 	char *blob = NULL;
 	size_t n = 0;
 
@@ -99,7 +99,7 @@ int main(void)
 	};
 	size_t corpus_n = sizeof(corpus) / sizeof(corpus[0]);
 
-	db = stoma_open(0);
+	db = lemma_open(0);
 	CHECK(db != NULL, "open db");
 
 	/* store all corpus entries */
@@ -143,7 +143,7 @@ int main(void)
 	free(blob);
 
 	/* rebuild: fresh open, re-index corpus minus primary-dropped 3 */
-	db2 = stoma_open(0);
+	db2 = lemma_open(0);
 	CHECK(db2 != NULL, "rebuild: fresh open");
 	for (size_t i = 0; i < corpus_n; i++) {
 		if (corpus[i].ref == 3)
@@ -178,7 +178,7 @@ int main(void)
 	/* rebuild-vs-incremental parity: fresh incremental of the same
 	 * surviving corpus must give the same beacon/harbor sets */
 	{
-		stoma_db_t *db3 = stoma_open(0);
+		lemma_db_t *db3 = lemma_open(0);
 		CHECK(db3 != NULL, "parity: fresh open");
 		CHECK(rec_axis_store(db3, NULL, 1, "Beacon Harbor lights") == 0,
 		      "parity: store 1");
@@ -192,11 +192,11 @@ int main(void)
 		      "parity: beacon finds 1 matches");
 		CHECK(text_finds(db3, "beacon", 2) == text_finds(db2, "beacon", 2),
 		      "parity: beacon finds 2 matches");
-		stoma_close(db3);
+		lemma_close(db3);
 	}
 
-	stoma_close(db);
-	stoma_close(db2);
+	lemma_close(db);
+	lemma_close(db2);
 
 	printf("Results: %d/%d passed", total - failures, total);
 	if (failures > 0)

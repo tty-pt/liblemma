@@ -7,16 +7,16 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <ttypt/corm.h>
-#include "stoma/stoma.h"
+#include "ttypt/lemma.h"
 
-#define STOMA_MAX_TOKENS 64
+#define LEMMA_MAX_TOKENS 64
 
 /* Declared in token.c (internal). */
-void stoma_tokenize(
+void lemma_tokenize(
         const char *folded, void (*cb)(const char *tok, size_t len, void *user),
         void *user);
 
-struct stoma_db {
+struct lemma_db {
 	unsigned hd;     /* CM_SORTED, CM_STR → CM_STR inverted index */
 	unsigned doc_hd; /* CM_SORTED, CM_STR → CM_STR folded text per
 	                    (field,row) */
@@ -26,15 +26,15 @@ struct stoma_db {
  * decode merges it into the bare/empty spec path (searchable when --query
  * is present; field defaults to "text") and fills fields a non-empty leaf
  * omits. */
-static char *stoma_cli_query;
-static char *stoma_cli_field;
-static int stoma_cli_phrase;
-static size_t stoma_cli_matched;
-static int stoma_cli_field_set, stoma_cli_phrase_set, stoma_cli_matched_set;
+static char *lemma_cli_query;
+static char *lemma_cli_field;
+static int lemma_cli_phrase;
+static size_t lemma_cli_matched;
+static int lemma_cli_field_set, lemma_cli_phrase_set, lemma_cli_matched_set;
 
-stoma_db_t *stoma_open(unsigned mask)
+lemma_db_t *lemma_open(unsigned mask)
 {
-	stoma_db_t *db;
+	lemma_db_t *db;
 
 	db = calloc(1, sizeof(*db));
 	if (!db)
@@ -53,7 +53,7 @@ stoma_db_t *stoma_open(unsigned mask)
 	return db;
 }
 
-void stoma_close(stoma_db_t *db)
+void lemma_close(lemma_db_t *db)
 {
 	if (!db)
 		return;
@@ -62,7 +62,7 @@ void stoma_close(stoma_db_t *db)
 	free(db);
 }
 
-void stoma_clear(stoma_db_t *db)
+void lemma_clear(lemma_db_t *db)
 {
 	if (!db)
 		return;
@@ -98,8 +98,8 @@ static void index_token(const char *tok, size_t len, void *user)
 	free(key);
 }
 
-int stoma_index(
-        stoma_db_t *db, const char *field, const char *row_id,
+int lemma_index(
+        lemma_db_t *db, const char *field, const char *row_id,
         const char *value)
 {
 	index_ctx_t ctx;
@@ -113,14 +113,14 @@ int stoma_index(
 	folded = malloc(vlen + 1);
 	if (!folded)
 		return -1;
-	if (stoma_fold(folded, vlen + 1, value) < 0) {
+	if (lemma_fold(folded, vlen + 1, value) < 0) {
 		free(folded);
 		return 0;
 	}
 	ctx.field = field;
 	ctx.row_id = row_id;
 	ctx.hd = db->hd;
-	stoma_tokenize(folded, index_token, &ctx);
+	lemma_tokenize(folded, index_token, &ctx);
 
 	/* Side table: store the folded text per (field,row_id) so phrase
 	 * queries can re-tokenize a document and test token adjacency. */
@@ -148,14 +148,14 @@ int stoma_index(
 	return 0;
 }
 
-int stoma_index_ref(
-        stoma_db_t *db, const char *field, rec_ref_t row_id,
+int lemma_index_ref(
+        lemma_db_t *db, const char *field, rec_ref_t row_id,
         const char *value)
 {
 	char rid[24];
 
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)row_id);
-	return stoma_index(db, field, rid, value);
+	return lemma_index(db, field, rid, value);
 }
 
 /* ---- unindex (the differential inverse of index) ---- */
@@ -189,7 +189,7 @@ static void collect_unindex_token(const char *tok, size_t len, void *user)
 	t->n++;
 }
 
-int stoma_unindex(stoma_db_t *db, const char *field, const char *row_id)
+int lemma_unindex(lemma_db_t *db, const char *field, const char *row_id)
 {
 	size_t fld;
 	size_t rid;
@@ -219,7 +219,7 @@ int stoma_unindex(stoma_db_t *db, const char *field, const char *row_id)
 		return 0; /* absent (field,row): idempotent no-op */
 	}
 	memset(&toks, 0, sizeof(toks));
-	stoma_tokenize(dtext, collect_unindex_token, &toks);
+	lemma_tokenize(dtext, collect_unindex_token, &toks);
 	/* Duplicate tokens collapsed at index time (same key replaces),
 	 * so deleting each occurrence's key is exact; repeats are
 	 * harmless no-ops. */
@@ -245,12 +245,12 @@ int stoma_unindex(stoma_db_t *db, const char *field, const char *row_id)
 	return 0;
 }
 
-int stoma_unindex_ref(stoma_db_t *db, const char *field, rec_ref_t row_id)
+int lemma_unindex_ref(lemma_db_t *db, const char *field, rec_ref_t row_id)
 {
 	char rid[24];
 
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)row_id);
-	return stoma_unindex(db, field, rid);
+	return lemma_unindex(db, field, rid);
 }
 
 /* ---- rec_axis store / unstore / readback (Phase 2A) ---- */
@@ -258,7 +258,7 @@ int stoma_unindex_ref(stoma_db_t *db, const char *field, rec_ref_t row_id)
 int rec_axis_store(void *ctx, const char *spec, rec_ref_t ref,
 	const char *value)
 {
-	stoma_db_t *db = ctx;
+	lemma_db_t *db = ctx;
 
 	(void)spec; /* reserved — NULL */
 	if (!db || !value) {
@@ -271,27 +271,27 @@ int rec_axis_store(void *ctx, const char *spec, rec_ref_t ref,
 	}
 	/* Replace-in-place: the ref owns exactly one doc, so erase any
 	 * previous entry first (idempotent when absent). */
-	if (stoma_unindex_ref(db, STOMA_AXIS_TEXT_FIELD, ref) != 0)
+	if (lemma_unindex_ref(db, LEMMA_AXIS_TEXT_FIELD, ref) != 0)
 		return -1;
-	return stoma_index_ref(db, STOMA_AXIS_TEXT_FIELD, ref, value);
+	return lemma_index_ref(db, LEMMA_AXIS_TEXT_FIELD, ref, value);
 }
 
 int rec_axis_unstore(void *ctx, rec_ref_t ref)
 {
-	stoma_db_t *db = ctx;
+	lemma_db_t *db = ctx;
 
 	if (!db) {
 		errno = EINVAL;
 		return -1;
 	}
-	/* stoma_unindex is already absent → 0; the idempotent contract. */
-	return stoma_unindex_ref(db, STOMA_AXIS_TEXT_FIELD, ref);
+	/* lemma_unindex is already absent → 0; the idempotent contract. */
+	return lemma_unindex_ref(db, LEMMA_AXIS_TEXT_FIELD, ref);
 }
 
 int rec_axis_readback(void *ctx, rec_ref_t ref, char **blob_out,
 	size_t *n_out)
 {
-	stoma_db_t *db = ctx;
+	lemma_db_t *db = ctx;
 	char rid[24];
 	size_t fld;
 	size_t rlen;
@@ -310,12 +310,12 @@ int rec_axis_readback(void *ctx, rec_ref_t ref, char **blob_out,
 	/* One entry: the stored (folded) doc text. The store keeps no
 	 * other copy, so read-back is exactly what queries see. */
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)ref);
-	fld = strlen(STOMA_AXIS_TEXT_FIELD);
+	fld = strlen(LEMMA_AXIS_TEXT_FIELD);
 	rlen = strlen(rid);
 	dkey = malloc(fld + 1 + rlen + 1);
 	if (!dkey)
 		return -1;
-	memcpy(dkey, STOMA_AXIS_TEXT_FIELD, fld);
+	memcpy(dkey, LEMMA_AXIS_TEXT_FIELD, fld);
 	dkey[fld] = '\t';
 	memcpy(dkey + fld + 1, rid, rlen);
 	dkey[fld + 1 + rlen] = '\0';
@@ -334,8 +334,8 @@ int rec_axis_readback(void *ctx, rec_ref_t ref, char **blob_out,
 /* ---- query ---- */
 
 typedef struct {
-	const char *toks[STOMA_MAX_TOKENS];
-	size_t len[STOMA_MAX_TOKENS];
+	const char *toks[LEMMA_MAX_TOKENS];
+	size_t len[LEMMA_MAX_TOKENS];
 	size_t n;
 } collect_ctx_t;
 
@@ -343,7 +343,7 @@ static void collect_token(const char *tok, size_t len, void *user)
 {
 	collect_ctx_t *c = (collect_ctx_t *)user;
 
-	if (c->n < STOMA_MAX_TOKENS) {
+	if (c->n < LEMMA_MAX_TOKENS) {
 		c->toks[c->n] = tok;
 		c->len[c->n] = len;
 		c->n++;
@@ -412,9 +412,9 @@ typedef struct {
 	unsigned hd;    /* raw-path output handle            */
 	rec_set_t *set; /* kernel candidate set              */
 	int err;        /* strict decimal-parse failure flag */
-} stoma_dest_t;
+} lemma_dest_t;
 
-static void stoma_dest_emit(stoma_dest_t *d, const char *row_id)
+static void lemma_dest_emit(lemma_dest_t *d, const char *row_id)
 {
 	if (d->hd) {
 		corm_put(d->hd, row_id, "");
@@ -442,8 +442,8 @@ static void stoma_dest_emit(stoma_dest_t *d, const char *row_id)
 	}
 }
 
-static uint32_t stoma_query_any(
-        stoma_db_t *db, const char *field, const char *query, stoma_dest_t *out,
+static uint32_t lemma_query_any(
+        lemma_db_t *db, const char *field, const char *query, lemma_dest_t *out,
         int *handled, int phrase)
 {
 	collect_ctx_t toks;
@@ -475,14 +475,14 @@ static uint32_t stoma_query_any(
 		if (!folded)
 			return 0;
 	}
-	if (stoma_fold(folded, qlen + 1, query) < 0) {
+	if (lemma_fold(folded, qlen + 1, query) < 0) {
 		if (folded != fold_stack)
 			free(folded);
 		return 0;
 	}
 
 	toks.n = 0;
-	stoma_tokenize(folded, collect_token, &toks);
+	lemma_tokenize(folded, collect_token, &toks);
 	if (toks.n == 0) {
 		if (folded != fold_stack)
 			free(folded);
@@ -576,7 +576,7 @@ static uint32_t stoma_query_any(
 				dtext = (const char *)corm_get(db->doc_hd, dkey);
 				memset(&d, 0, sizeof(d));
 				if (dtext) {
-					stoma_tokenize(
+					lemma_tokenize(
 					        dtext, collect_doc_token, &d);
 					keep = doc_matches_phrase(&d, &toks);
 				} else {
@@ -585,7 +585,7 @@ static uint32_t stoma_query_any(
 				free(d.ent);
 			}
 			if (keep) {
-				stoma_dest_emit(out, rid);
+				lemma_dest_emit(out, rid);
 				matches++;
 			}
 		}
@@ -601,44 +601,44 @@ static uint32_t stoma_query_any(
 	return matches;
 }
 
-uint32_t stoma_query(
-        stoma_db_t *db, const char *field, const char *query, uint32_t out_hd,
+uint32_t lemma_query(
+        lemma_db_t *db, const char *field, const char *query, uint32_t out_hd,
         int *handled)
 {
-	stoma_dest_t d = { out_hd, NULL, 0 };
+	lemma_dest_t d = { out_hd, NULL, 0 };
 
-	return stoma_query_any(db, field, query, &d, handled, 0);
+	return lemma_query_any(db, field, query, &d, handled, 0);
 }
 
-uint32_t stoma_query_phrase(
-        stoma_db_t *db, const char *field, const char *query, uint32_t out_hd,
+uint32_t lemma_query_phrase(
+        lemma_db_t *db, const char *field, const char *query, uint32_t out_hd,
         int *handled)
 {
-	stoma_dest_t d = { out_hd, NULL, 0 };
+	lemma_dest_t d = { out_hd, NULL, 0 };
 
-	return stoma_query_any(db, field, query, &d, handled, 1);
+	return lemma_query_any(db, field, query, &d, handled, 1);
 }
 
 /* ---- recall-kernel fill + rank ---- */
 
-int rec_axis_fill_tokens(stoma_db_t *db, const char *field, const char *query,
+int rec_axis_fill_tokens(lemma_db_t *db, const char *field, const char *query,
                          int phrase, rec_set_t *out)
 {
-	stoma_dest_t d;
+	lemma_dest_t d;
 
 	if (!db || !field || !query || !out)
 		return -1;
 	d.hd = 0;
 	d.set = out;
 	d.err = 0;
-	stoma_query_any(db, field, query, &d, NULL, phrase ? 1 : 0);
+	lemma_query_any(db, field, query, &d, NULL, phrase ? 1 : 0);
 	if (d.err)
 		return -1;
 	rec_set_seal(out);
 	return 0;
 }
 
-int stoma_rank(struct stoma_rank_ctx *ctx, rec_ref_t ref, float *score)
+int lemma_rank(struct lemma_rank_ctx *ctx, rec_ref_t ref, float *score)
 {
 	char rid[24];
 	size_t fld;
@@ -664,7 +664,7 @@ int stoma_rank(struct stoma_rank_ctx *ctx, rec_ref_t ref, float *score)
 	if (!dtext)
 		return -1;
 	memset(&d, 0, sizeof(d));
-	stoma_tokenize(dtext, collect_doc_token, &d);
+	lemma_tokenize(dtext, collect_doc_token, &d);
 	if (d.n == 0) {
 		free(d.ent);
 		return -1;
@@ -674,41 +674,41 @@ int stoma_rank(struct stoma_rank_ctx *ctx, rec_ref_t ref, float *score)
 	return 0;
 }
 
-/* ---- rec_query axis registration (stoma) ---- */
+/* ---- rec_query axis registration (lemma) ---- */
 
-struct rec_stoma_params {
+struct rec_lemma_params {
 	const char *field;
 	const char *query;
 	int         phrase;
 	size_t      matched; /* rank param: matched query tokens */
 };
 
-static int stoma_axis_fill(void *ctx, void *params, rec_set_t *out)
+static int lemma_axis_fill(void *ctx, void *params, rec_set_t *out)
 {
-	stoma_db_t *db = ctx;
-	const struct rec_stoma_params *p = params;
+	lemma_db_t *db = ctx;
+	const struct rec_lemma_params *p = params;
 
 	if (!p)
 		return -1;
 	return rec_axis_fill_tokens(db, p->field, p->query, p->phrase, out);
 }
 
-static int stoma_axis_rank(void *ctx, void *params, rec_ref_t ref, float *score)
+static int lemma_axis_rank(void *ctx, void *params, rec_ref_t ref, float *score)
 {
-	const struct rec_stoma_params *p = params;
-	struct stoma_rank_ctx sc;
+	const struct rec_lemma_params *p = params;
+	struct lemma_rank_ctx sc;
 
 	if (!p)
 		return -1;
 	sc.db = ctx;
 	sc.field = p->field;
 	sc.matched = p->matched;
-	return stoma_rank(&sc, ref, score);
+	return lemma_rank(&sc, ref, score);
 }
 
 /*
  * Decode "field=body query='hello world' phrase=1 matched=2" into a
- * heap-owned rec_stoma_params. query/field default to "", phrase/
+ * heap-owned rec_lemma_params. query/field default to "", phrase/
  * matched default to 0. Single-quoted values may contain spaces. The
  * decode-spec grammar is kernel-owned (ttypt/rec.h rec_spec_scan):
  * values are parsed in place with bounded parsers, so decode allocates
@@ -716,9 +716,9 @@ static int stoma_axis_rank(void *ctx, void *params, rec_ref_t ref, float *score)
  * leaf provides a non-empty value). The kept strings are owned copies;
  * CLI fallbacks are borrowed process-lifetime globals.
  */
-static void *stoma_axis_decode(const char *s)
+static void *lemma_axis_decode(const char *s)
 {
-	struct rec_stoma_params *p;
+	struct rec_lemma_params *p;
 	const char *q_leaf = NULL, *f_leaf = NULL;
 	size_t qlen = 0, flen = 0;
 	char *q_owned = NULL, *f_owned = NULL;
@@ -728,7 +728,7 @@ static void *stoma_axis_decode(const char *s)
 	p = calloc(1, sizeof(*p));
 	if (!p)
 		return NULL;
-	p->field = STOMA_AXIS_TEXT_FIELD;
+	p->field = LEMMA_AXIS_TEXT_FIELD;
 	p->query = "";
 	p->phrase = 0;
 	p->matched = 0;
@@ -737,15 +737,15 @@ static void *stoma_axis_decode(const char *s)
 	 * defaults to "text" — the documented store field, so there is no
 	 * field="" hazard). Otherwise NULL (loud fill failure, unchanged). */
 	if (!s) {
-		if (!stoma_cli_query) {
+		if (!lemma_cli_query) {
 			free(p);
 			return NULL;
 		}
-		p->field = stoma_cli_field_set ? stoma_cli_field
-		                              : STOMA_AXIS_TEXT_FIELD;
-		p->query = stoma_cli_query;
-		p->phrase = stoma_cli_phrase;
-		p->matched = stoma_cli_matched;
+		p->field = lemma_cli_field_set ? lemma_cli_field
+		                              : LEMMA_AXIS_TEXT_FIELD;
+		p->query = lemma_cli_query;
+		p->phrase = lemma_cli_phrase;
+		p->matched = lemma_cli_matched;
 		return p;
 	}
 
@@ -789,8 +789,8 @@ static void *stoma_axis_decode(const char *s)
 				    &q_owned) != 0)
 			goto fail;
 		p->query = q_owned;
-	} else if (stoma_cli_query) {
-		p->query = stoma_cli_query;
+	} else if (lemma_cli_query) {
+		p->query = lemma_cli_query;
 	}
 	if (has_field) {
 		if (flen > 0) {
@@ -799,13 +799,13 @@ static void *stoma_axis_decode(const char *s)
 				goto fail;
 			p->field = f_owned;
 		}                       /* empty leaf → keep "text" default */
-	} else if (stoma_cli_field_set) {
-		p->field = stoma_cli_field;
+	} else if (lemma_cli_field_set) {
+		p->field = lemma_cli_field;
 	}
-	if (!has_phrase && stoma_cli_phrase_set)
-		p->phrase = stoma_cli_phrase;
-	if (!has_matched && stoma_cli_matched_set)
-		p->matched = stoma_cli_matched;
+	if (!has_phrase && lemma_cli_phrase_set)
+		p->phrase = lemma_cli_phrase;
+	if (!has_matched && lemma_cli_matched_set)
+		p->matched = lemma_cli_matched;
 	return p;
 
 fail:
@@ -815,27 +815,27 @@ fail:
 	return NULL;
 }
 
-__attribute__((constructor)) static void stoma_rec_axis_init(void)
+__attribute__((constructor)) static void lemma_rec_axis_init(void)
 {
-	static const rec_axis_t stoma_axis = {
-		"stoma", stoma_axis_fill, stoma_axis_rank, NULL, stoma_axis_decode
+	static const rec_axis_t lemma_axis = {
+		"lemma", lemma_axis_fill, lemma_axis_rank, NULL, lemma_axis_decode
 	};
 
-	rec_axis_register(&stoma_axis);
+	rec_axis_register(&lemma_axis);
 }
 
 /*
  * rec_axis_open convention (RECALL-KERNEL.md "rec_axis_open convention", optional CLI-open
  * convention, not part of libcorm's core rec_query registry API): spec
- * is the decimal corm hash mask for stoma_open() (empty/NULL -> 0, the
+ * is the decimal corm hash mask for lemma_open() (empty/NULL -> 0, the
  * corm default) — or, when it names a path (contains a '/'), a
- * 2B-2 primary-seeded rebuild: stoma finds the primary corm store and
+ * 2B-2 primary-seeded rebuild: lemma finds the primary corm store and
  * re-indexes every stored record (`:a:s` raw and `:a:u` decimal alike —
  * keys iterate as refs, values as text), emitting the one-line rebuild
  * budget note (mm-plan U4).
  *
  * Primary resolution (7-AXIS-NAMESPACE-PLAN.md B-1/B-2): the CLI publishes
- * the exact primary it opened as CORM_AXIS_PRIMARY, and stoma rebuilds
+ * the exact primary it opened as CORM_AXIS_PRIMARY, and lemma rebuilds
  * from THAT primary (verbatim → aliases the live handle) when its
  * `<primary>.roster` sidecar exists. Without the env it falls back to the
  * directory scan (exactly one `*.roster` → use it; none → loud warn, empty).
@@ -846,14 +846,14 @@ __attribute__((constructor)) static void stoma_rec_axis_init(void)
  * Malformed/unfindable sidecar → loud warn, memory-only index. The
  * primary open uses the CLI's mask derivation (D11): CORM_MASK env
  * (validated 2^n-1) else the 4095 default — co-opened files must always
- * match. Returns the stoma_db_t* ctx directly (no cast needed).
+ * match. Returns the lemma_db_t* ctx directly (no cast needed).
  */
 void *rec_axis_open(const char *spec)
 {
 	unsigned mask;
 
 	if (spec && strchr(spec, '/')) {
-		stoma_db_t *db = stoma_open(0);
+		lemma_db_t *db = lemma_open(0);
 		/* CLI mask derivation (D11): CORM_MASK overrides the 4095
 		 * default — the sidecar rebuild must open the primary with
 		 * the same table shape the CLI wrote. */
@@ -903,7 +903,7 @@ void *rec_axis_open(const char *spec)
 				primary = strdup(eprim);
 			else
 				fprintf(stderr,
-					"stoma: CORM_AXIS_PRIMARY '%s' has no "
+					"lemma: CORM_AXIS_PRIMARY '%s' has no "
 					"'%s'; falling back to the directory "
 					"scan\n",
 					eprim, rs);
@@ -943,7 +943,7 @@ void *rec_axis_open(const char *spec)
 			 * loud warn, stay empty (not the wrong primary). */
 			if (nroster > 1) {
 				fprintf(stderr,
-					"stoma: %d roster sidecars in '%s'; "
+					"lemma: %d roster sidecars in '%s'; "
 					"cannot pick a primary (set "
 					"CORM_AXIS_PRIMARY to one DB); text "
 					"queries stay empty\n",
@@ -955,7 +955,7 @@ void *rec_axis_open(const char *spec)
 
 		if (!primary && nroster == 0) {
 			fprintf(stderr,
-				"stoma: no primary found in '%s' (no *.roster "
+				"lemma: no primary found in '%s' (no *.roster "
 				"sidecar); text queries stay empty\n",
 				dir);
 		} else {
@@ -963,7 +963,7 @@ void *rec_axis_open(const char *spec)
 					pmask, CM_AINDEX | CM_MIRROR);
 			if (!hd) {
 				fprintf(stderr,
-					"stoma: cannot open primary '%s'\n",
+					"lemma: cannot open primary '%s'\n",
 					primary);
 			} else {
 				clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -973,8 +973,8 @@ void *rec_axis_open(const char *spec)
 					memcpy(&ref, key,
 							corm_type_len(CM_HNDL));
 					if (value)
-						stoma_index_ref(db,
-							STOMA_AXIS_TEXT_FIELD,
+						lemma_index_ref(db,
+							LEMMA_AXIS_TEXT_FIELD,
 							ref, (const char *)value);
 					docs++;
 				}
@@ -983,7 +983,7 @@ void *rec_axis_open(const char *spec)
 				ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0
 					+ (double)(t1.tv_nsec - t0.tv_nsec)
 					/ 1000000.0;
-				fprintf(stderr, "stoma: rebuilt %zu docs in "
+				fprintf(stderr, "lemma: rebuilt %zu docs in "
 						"%.2f ms\n", docs, ms);
 			}
 		}
@@ -993,7 +993,7 @@ void *rec_axis_open(const char *spec)
 	}
 
 	mask = (spec && *spec) ? (unsigned)strtoul(spec, NULL, 10) : 0;
-	return stoma_open(mask);
+	return lemma_open(mask);
 }
 
 /*
@@ -1001,7 +1001,7 @@ void *rec_axis_open(const char *spec)
  * optional axis-contributed CLI options — not libcorm core API): corm
  * collects inline `--name=value` tokens and, once every bound axis is
  * connected, broadcasts each to the declarations via these dlsym'd symbols.
- * stoma declares `query` (full-text query), `field` (query field), `phrase`
+ * lemma declares `query` (full-text query), `field` (query field), `phrase`
  * and `matched`; decode merges them into the bare/empty/leaf paths (leaf
  * spec wins; field defaults to "text"). The option struct ABI is
  * kernel-owned in <ttypt/rec.h>.
@@ -1028,25 +1028,25 @@ rec_axis_config_arg(const char *name, const char *value)
 	if (!name || !value)
 		return -1;
 	if (!strcmp(name, "query"))
-		return rec_cli_str_set(&stoma_cli_query, value);
+		return rec_cli_str_set(&lemma_cli_query, value);
 	if (!strcmp(name, "field")) {
-		if (rec_cli_str_set(&stoma_cli_field, value) != 0)
+		if (rec_cli_str_set(&lemma_cli_field, value) != 0)
 			return -1;
-		stoma_cli_field_set = 1;
+		lemma_cli_field_set = 1;
 		return 0;
 	}
 	if (!strcmp(name, "phrase")) {
 		if (rec_cli_int(value, &iv) != 0 || (iv != 0 && iv != 1))
 			return -1;
-		stoma_cli_phrase = iv;
-		stoma_cli_phrase_set = 1;
+		lemma_cli_phrase = iv;
+		lemma_cli_phrase_set = 1;
 		return 0;
 	}
 	if (!strcmp(name, "matched")) {
 		if (rec_cli_size(value, &nv) != 0)
 			return -1;
-		stoma_cli_matched = nv;
-		stoma_cli_matched_set = 1;
+		lemma_cli_matched = nv;
+		lemma_cli_matched_set = 1;
 		return 0;
 	}
 	return -1;

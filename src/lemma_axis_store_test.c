@@ -4,13 +4,13 @@
 #include <errno.h>
 #include <ttypt/corm.h>
 #include <ttypt/rec.h>
-#include "stoma/stoma.h"
+#include "ttypt/lemma.h"
 
 /* 2A-2 adapter contract: rec_axis_store / rec_axis_unstore /
  * rec_axis_readback on the canonical "text" field.
  *
- * The consumer passes (ref, value) blindly; stoma stores the WHOLE value
- * string's text under STOMA_AXIS_TEXT_FIELD (replace-in-place: a ref owns
+ * The consumer passes (ref, value) blindly; lemma stores the WHOLE value
+ * string's text under LEMMA_AXIS_TEXT_FIELD (replace-in-place: a ref owns
  * exactly one doc). Read-back returns the stored (folded — lowercased,
  * accent-preserving) text as one NUL-joined entry; n_out counts the
  * display chars (libsepal convention). Zero new stored state; memory-only.
@@ -33,7 +33,7 @@ static int hd_has(unsigned hd, const char *row)
 	return corm_get(hd, row) != NULL;
 }
 
-static int text_finds(stoma_db_t *db, const char *tok, rec_ref_t ref)
+static int text_finds(lemma_db_t *db, const char *tok, rec_ref_t ref)
 {
 	unsigned hd = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF, 0);
 	int handled = 0;
@@ -44,13 +44,13 @@ static int text_finds(stoma_db_t *db, const char *tok, rec_ref_t ref)
 	if (!hd)
 		return 0;
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)ref);
-	n = stoma_query(db, STOMA_AXIS_TEXT_FIELD, tok, hd, &handled);
+	n = lemma_query(db, LEMMA_AXIS_TEXT_FIELD, tok, hd, &handled);
 	found = handled == 1 && n >= 1 && hd_has(hd, rid);
 	corm_close(hd);
 	return found;
 }
 
-static int text_misses(stoma_db_t *db, const char *tok, rec_ref_t ref)
+static int text_misses(lemma_db_t *db, const char *tok, rec_ref_t ref)
 {
 	unsigned hd = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF, 0);
 	int handled = 0;
@@ -60,7 +60,7 @@ static int text_misses(stoma_db_t *db, const char *tok, rec_ref_t ref)
 	if (!hd)
 		return 0;
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)ref);
-	(void)stoma_query(db, STOMA_AXIS_TEXT_FIELD, tok, hd, &handled);
+	(void)lemma_query(db, LEMMA_AXIS_TEXT_FIELD, tok, hd, &handled);
 	miss = handled == 1 && !hd_has(hd, rid);
 	corm_close(hd);
 	return miss;
@@ -68,7 +68,7 @@ static int text_misses(stoma_db_t *db, const char *tok, rec_ref_t ref)
 
 int main(void)
 {
-	stoma_db_t *db = stoma_open(0);
+	lemma_db_t *db = lemma_open(0);
 	char *blob;
 	size_t n;
 
@@ -87,7 +87,7 @@ int main(void)
 		unsigned hd = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF,
 		                        0);
 		int handled = 0;
-		uint32_t m = stoma_query(db, "title", "beacon", hd,
+		uint32_t m = lemma_query(db, "title", "beacon", hd,
 		                         &handled);
 
 		CHECK(handled == 1 && m == 0, "store lands under text only");
@@ -181,7 +181,7 @@ int main(void)
 	      "readback null n_out -> EINVAL");
 	free(blob);
 
-	stoma_close(db);
+	lemma_close(db);
 
 	printf("Results: %d/%d passed", total - failures, total);
 	if (failures > 0)

@@ -4,11 +4,11 @@
 #include <locale.h>
 #include <ttypt/corm.h>
 #include <ttypt/rec.h>
-#include "stoma/stoma.h"
+#include "ttypt/lemma.h"
 
 static int failures = 0;
 static int total = 0;
-static stoma_db_t *rdb;
+static lemma_db_t *rdb;
 
 #define CHECK(cond, name)                                                      \
 	do {                                                                   \
@@ -80,7 +80,7 @@ static int corm_equals_set(unsigned hd, const rec_set_t *fs)
 	return ok && qn == rec_set_count(fs);
 }
 
-static rec_set_t *fill_once(stoma_db_t *db, const char *field,
+static rec_set_t *fill_once(lemma_db_t *db, const char *field,
                             const char *query, int phrase)
 {
 	rec_set_t *fs = rec_set_new();
@@ -110,7 +110,7 @@ static void check_row_fill(unsigned out, const char *query, int hexp,
 	char name[128];
 
 	corm_drop(out);
-	n = stoma_query(rdb, "title", query, out, &handled);
+	n = lemma_query(rdb, "title", query, out, &handled);
 	fs = fill_once(rdb, "title", query, 0);
 	snprintf(name, sizeof(name), "fill==query '%s'", query);
 	CHECK(fs && handled == hexp && n == nex && rec_set_count(fs) == nex &&
@@ -129,7 +129,7 @@ static void check_row_fill(unsigned out, const char *query, int hexp,
 
 int main(void)
 {
-	stoma_db_t *db = stoma_open(0);
+	lemma_db_t *db = lemma_open(0);
 	unsigned out = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF, 0);
 	int handled = 0;
 	uint32_t n;
@@ -142,22 +142,22 @@ int main(void)
 	/* 1. fold */
 	{
 		char b[64];
-		int r = stoma_fold(b, sizeof(b), "Été Aéro");
+		int r = lemma_fold(b, sizeof(b), "Été Aéro");
 		CHECK(r > 0 && strcmp(b, "été aéro") == 0, "fold accent+case");
 	}
 
 	/* 2-3. index + exact + prefix */
-	stoma_index(db, "title", "r1", "Starlight of the night");
-	stoma_index(db, "title", "r2", "Station one");
-	stoma_index(db, "title", "r3", "st");
-	stoma_index(db, "title", "r4", "A Dark Night");
+	lemma_index(db, "title", "r1", "Starlight of the night");
+	lemma_index(db, "title", "r2", "Station one");
+	lemma_index(db, "title", "r3", "st");
+	lemma_index(db, "title", "r4", "A Dark Night");
 
-	n = stoma_query(db, "title", "night", out, &handled);
+	n = lemma_query(db, "title", "night", out, &handled);
 	CHECK(handled == 1 && n == 2, "exact token");
 	CHECK(hd_has(out, "r1") && hd_has(out, "r4"), "exact rows");
 	corm_drop(out);
 
-	n = stoma_query(db, "title", "st", out, &handled);
+	n = lemma_query(db, "title", "st", out, &handled);
 	CHECK(handled == 1 && n == 3, "prefix st");
 	CHECK(hd_has(out, "r1") && hd_has(out, "r2") && hd_has(out, "r3"),
 	      "prefix rows");
@@ -165,55 +165,55 @@ int main(void)
 	corm_drop(out);
 
 	/* 4. multi-token AND (order-insensitive) */
-	stoma_index(db, "title", "r5", "Black Star");
-	n = stoma_query(db, "title", "black star", out, &handled);
+	lemma_index(db, "title", "r5", "Black Star");
+	n = lemma_query(db, "title", "black star", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r5"), "AND two tokens");
 	corm_drop(out);
-	n = stoma_query(db, "title", "star black", out, &handled);
+	n = lemma_query(db, "title", "star black", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r5"), "AND order-insensitive");
 	corm_drop(out);
 
 	/* 5. digits-only token */
-	stoma_index(db, "title", "r6", "1984");
-	n = stoma_query(db, "title", "1984", out, &handled);
+	lemma_index(db, "title", "r6", "1984");
+	n = lemma_query(db, "title", "1984", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r6"), "digits token");
 	corm_drop(out);
-	n = stoma_query(db, "title", "19", out, &handled);
+	n = lemma_query(db, "title", "19", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r6"), "digit prefix");
 	corm_drop(out);
 
 	/* 6. zero-token query → no-op */
-	n = stoma_query(db, "title", "---", out, &handled);
+	n = lemma_query(db, "title", "---", out, &handled);
 	CHECK(handled == 0 && n == 0, "zero-token no-op");
 	corm_drop(out);
 
 	/* 7. per-field isolation */
-	stoma_index(db, "author", "r1", "Stardust");
-	n = stoma_query(db, "title", "stardust", out, &handled);
+	lemma_index(db, "author", "r1", "Stardust");
+	n = lemma_query(db, "title", "stardust", out, &handled);
 	CHECK(handled == 1 && n == 0, "field isolation");
 	corm_drop(out);
 
 	/* 8. token dedup: repeated word matches once */
-	stoma_index(db, "title", "r7", "la la la");
-	n = stoma_query(db, "title", "la", out, &handled);
+	lemma_index(db, "title", "r7", "la la la");
+	n = lemma_query(db, "title", "la", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r7"), "dedup");
 	corm_drop(out);
 
 	/* 9. clear + re-index */
-	stoma_clear(db);
-	n = stoma_query(db, "title", "night", out, &handled);
+	lemma_clear(db);
+	n = lemma_query(db, "title", "night", out, &handled);
 	CHECK(handled == 1 && n == 0, "clear removes entries");
 	corm_drop(out);
-	stoma_index(db, "title", "r9", "new world");
-	n = stoma_query(db, "title", "new", out, &handled);
+	lemma_index(db, "title", "r9", "new world");
+	n = lemma_query(db, "title", "new", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r9"), "re-index after clear");
 	corm_drop(out);
 
 	/* 10. in-place put on same (field,row): re-indexing a changed value
 	 * leaves stale tokens (documented) — full rebuild via clear() is the
 	 * caller's contract. */
-	stoma_index(db, "title", "r9", "another world");
-	n = stoma_query(db, "title", "new", out, &handled);
+	lemma_index(db, "title", "r9", "another world");
+	n = lemma_query(db, "title", "new", out, &handled);
 	CHECK(n == 1, "stale token remains (documented)");
 	corm_drop(out);
 
@@ -221,28 +221,28 @@ int main(void)
 	{
 		char b[128];
 
-		CHECK(stoma_fold(b, sizeof(b), "Straße") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "Straße") > 0 &&
 		              strcmp(b, "straße") == 0,
 		      "fold sz");
-		CHECK(stoma_fold(b, sizeof(b), "Øresund ærø å") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "Øresund ærø å") > 0 &&
 		              strcmp(b, "øresund ærø å") == 0,
 		      "fold oslash ae aa");
-		CHECK(stoma_fold(b, sizeof(b), "El Niño açúcar") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "El Niño açúcar") > 0 &&
 		              strcmp(b, "el niño açúcar") == 0,
 		      "fold ntilde ccedil");
-		CHECK(stoma_fold(b, sizeof(b), "Ünter Öl Ärger") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "Ünter Öl Ärger") > 0 &&
 		              strcmp(b, "ünter öl ärger") == 0,
 		      "fold umlauts");
-		CHECK(stoma_fold(b, sizeof(b), "ÉTÉ") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "ÉTÉ") > 0 &&
 		              strcmp(b, "été") == 0,
 		      "fold case");
-		CHECK(stoma_fold(b, sizeof(b), "Pão") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "Pão") > 0 &&
 		              strcmp(b, "pão") == 0,
 		      "fold pao preserves accent");
-		CHECK(stoma_fold(b, sizeof(b), "não senhôr çãõ") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "não senhôr çãõ") > 0 &&
 		              strcmp(b, "não senhôr çãõ") == 0,
 		      "fold pt accents");
-		CHECK(stoma_fold(b, sizeof(b), "À É Í Ó Ú à é í ó ú") > 0 &&
+		CHECK(lemma_fold(b, sizeof(b), "À É Í Ó Ú à é í ó ú") > 0 &&
 		              strcmp(b, "à é í ó ú à é í ó ú") == 0,
 		      "fold upper accents");
 	}
@@ -253,70 +253,70 @@ int main(void)
 
 		/* "abc" folds to 3 bytes + NUL → 4-byte buffer is an exact fit
 		 */
-		CHECK(stoma_fold(b, sizeof(b), "abc") == 3 &&
+		CHECK(lemma_fold(b, sizeof(b), "abc") == 3 &&
 		              strcmp(b, "abc") == 0,
 		      "fold exact fit");
 		/* "abcd" = 4 bytes + NUL → 4-byte buffer too small → -1 */
-		CHECK(stoma_fold(b, sizeof(b), "abcd") == -1,
+		CHECK(lemma_fold(b, sizeof(b), "abcd") == -1,
 		      "fold buffer too small");
-		CHECK(stoma_fold(b, sizeof(b), "") == 0, "fold empty string");
+		CHECK(lemma_fold(b, sizeof(b), "") == 0, "fold empty string");
 	}
 
 	/* 13. non-Latin text is preserved and searchable (accent-sensitive) */
 	{
 		char b[128];
 
-		CHECK(stoma_fold(b, sizeof(b), "駅東京") == 9 &&
+		CHECK(lemma_fold(b, sizeof(b), "駅東京") == 9 &&
 		              strcmp(b, "駅東京") == 0,
 		      "fold cjk verbatim");
-		stoma_index(db, "title", "r13", "駅東京");
-		n = stoma_query(db, "title", "駅", out, &handled);
+		lemma_index(db, "title", "r13", "駅東京");
+		n = lemma_query(db, "title", "駅", out, &handled);
 		CHECK(handled == 1 && n == 1, "cjk searchable");
 		corm_drop(out);
 	}
 
 	/* 14. NULL/empty argument contracts */
-	CHECK(stoma_index(db, NULL, "r", "v") == -1, "index null field");
-	CHECK(stoma_index(db, "t", NULL, "v") == -1, "index null row");
-	CHECK(stoma_index(db, "t", "r", NULL) == -1, "index null value");
-	CHECK(stoma_index(NULL, "t", "r", "v") == -1, "index null db");
+	CHECK(lemma_index(db, NULL, "r", "v") == -1, "index null field");
+	CHECK(lemma_index(db, "t", NULL, "v") == -1, "index null row");
+	CHECK(lemma_index(db, "t", "r", NULL) == -1, "index null value");
+	CHECK(lemma_index(NULL, "t", "r", "v") == -1, "index null db");
 	{
 		int h = 99;
 
-		n = stoma_query(NULL, "t", "q", out, &h);
+		n = lemma_query(NULL, "t", "q", out, &h);
 		CHECK(n == 0 && h == 0, "query null db");
-		n = stoma_query(db, NULL, "q", out, &h);
+		n = lemma_query(db, NULL, "q", out, &h);
 		CHECK(n == 0 && h == 0, "query null field");
-		n = stoma_query(db, "t", NULL, out, &h);
+		n = lemma_query(db, "t", NULL, out, &h);
 		CHECK(n == 0 && h == 0, "query null query");
-		n = stoma_query(db, "t", "q", 0, &h);
+		n = lemma_query(db, "t", "q", 0, &h);
 		CHECK(n == 0 && h == 0, "query null out_hd");
 	}
-	stoma_clear(NULL);
-	stoma_close(NULL);
+	lemma_clear(NULL);
+	lemma_close(NULL);
 
 	/* 15. empty / punctuation-only values index nothing */
-	stoma_index(db, "title", "r15", "");
-	stoma_index(db, "title", "r16", "... !!! ---");
-	n = stoma_query(db, "title", "anything", out, &handled);
+	lemma_index(db, "title", "r15", "");
+	lemma_index(db, "title", "r16", "... !!! ---");
+	n = lemma_query(db, "title", "anything", out, &handled);
 	CHECK(handled == 1 && n == 0, "empty/punct values never match");
 	corm_drop(out);
 
 	/* 16. out_hd is appended to, NOT cleared (caller contract) */
-	stoma_index(db, "title", "r17", "alpha beta");
-	stoma_index(db, "title", "r18", "gamma delta");
+	lemma_index(db, "title", "r17", "alpha beta");
+	lemma_index(db, "title", "r18", "gamma delta");
 	corm_drop(out);
-	n = stoma_query(db, "title", "alpha", out, &handled);
+	n = lemma_query(db, "title", "alpha", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r17"), "query alpha");
-	n = stoma_query(db, "title", "gamma", out, &handled);
+	n = lemma_query(db, "title", "gamma", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r17") && hd_has(out, "r18"),
 	      "query appends (union)");
 	corm_drop(out);
-	n = stoma_query(db, "title", "gamma", out, &handled);
+	n = lemma_query(db, "title", "gamma", out, &handled);
 	CHECK(n == 1 && !hd_has(out, "r17") && hd_has(out, "r18"),
 	      "drop between queries isolates");
 
-	/* 17. query truncates at STOMA_MAX_TOKENS (64) */
+	/* 17. query truncates at LEMMA_MAX_TOKENS (64) */
 	{
 		char big1[1024], big2[1024];
 		size_t i;
@@ -330,7 +330,7 @@ int main(void)
 			        big1 + off, sizeof(big1) - (size_t)off, "t%zu ",
 			        i);
 		snprintf(big1 + off, sizeof(big1) - (size_t)off, "needle");
-		stoma_index(db, "title", "r19", big1);
+		lemma_index(db, "title", "r19", big1);
 		corm_drop(out);
 		off = 0;
 		for (i = 0; i < 64; i++)
@@ -338,10 +338,10 @@ int main(void)
 			        big2 + off, sizeof(big2) - (size_t)off,
 			        "zz%zu ", i);
 		snprintf(big2 + off, sizeof(big2) - (size_t)off, "needle");
-		n = stoma_query(db, "title", big2, out, &handled);
+		n = lemma_query(db, "title", big2, out, &handled);
 		CHECK(handled == 1 && n == 0, "token 65+ ignored in query");
 		corm_drop(out);
-		n = stoma_query(db, "title", "t0 t1 t2", out, &handled);
+		n = lemma_query(db, "title", "t0 t1 t2", out, &handled);
 		CHECK(n == 1 && hd_has(out, "r19"), "first tokens still match");
 		corm_drop(out);
 	}
@@ -356,146 +356,146 @@ int main(void)
 		for (i = 0; i < 8980; i++)
 			off += snprintf(big + off, 9000 - (size_t)off, "a");
 		snprintf(big + off, 9000 - (size_t)off, " quarantinemon");
-		stoma_index(db, "title", "r19b", big);
+		lemma_index(db, "title", "r19b", big);
 		free(big);
 		corm_drop(out);
-		n = stoma_query(db, "title", "quarantinemon", out, &handled);
+		n = lemma_query(db, "title", "quarantinemon", out, &handled);
 		CHECK(handled == 1 && n == 1 && hd_has(out, "r19b"),
 		      "token past 8KB matches");
 		corm_drop(out);
-		n = stoma_query(db, "title", "aaaa", out, &handled);
+		n = lemma_query(db, "title", "aaaa", out, &handled);
 		CHECK(n == 1 && hd_has(out, "r19b"),
 		      "early tokens still match");
 		corm_drop(out);
 	}
 
 	/* 18. query normalization: punctuation and extra spaces */
-	stoma_index(db, "title", "r20", "Black Star");
-	n = stoma_query(db, "title", "black,  star", out, &handled);
+	lemma_index(db, "title", "r20", "Black Star");
+	n = lemma_query(db, "title", "black,  star", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r20"), "punct+spaces AND");
 	corm_drop(out);
-	n = stoma_query(db, "title", "  BLACK   STAR ", out, &handled);
+	n = lemma_query(db, "title", "  BLACK   STAR ", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r20"), "case+spaces AND");
 	corm_drop(out);
 
 	/* 19. same token in two fields of one row stays field-isolated */
-	stoma_index(db, "title", "r21", "love");
-	stoma_index(db, "author", "r21", "love");
-	stoma_index(db, "author", "r22", "uniquebyname");
-	n = stoma_query(db, "title", "love", out, &handled);
+	lemma_index(db, "title", "r21", "love");
+	lemma_index(db, "author", "r21", "love");
+	lemma_index(db, "author", "r22", "uniquebyname");
+	n = lemma_query(db, "title", "love", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r21"), "title love");
 	corm_drop(out);
-	n = stoma_query(db, "author", "love", out, &handled);
+	n = lemma_query(db, "author", "love", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r21"), "author love");
 	corm_drop(out);
-	n = stoma_query(db, "title", "uniquebyname", out, &handled);
+	n = lemma_query(db, "title", "uniquebyname", out, &handled);
 	CHECK(n == 0, "no cross-field leak");
 	corm_drop(out);
 
 	/* 20. alphanumeric tokens, prefix at token start only */
-	stoma_index(db, "title", "r23", "song2 live");
-	n = stoma_query(db, "title", "so", out, &handled);
+	lemma_index(db, "title", "r23", "song2 live");
+	n = lemma_query(db, "title", "so", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r23"), "alpha prefix");
 	corm_drop(out);
-	n = stoma_query(db, "title", "song2", out, &handled);
+	n = lemma_query(db, "title", "song2", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r23"), "exact alnum token");
 	corm_drop(out);
-	n = stoma_query(db, "title", "2l", out, &handled);
+	n = lemma_query(db, "title", "2l", out, &handled);
 	CHECK(n == 0, "mid-token not matched");
 	corm_drop(out);
 
 	/* 21. single-char query token */
-	n = stoma_query(db, "title", "s", out, &handled);
+	n = lemma_query(db, "title", "s", out, &handled);
 	CHECK(handled == 1 && n == 2 && hd_has(out, "r20") &&
 	              hd_has(out, "r23"),
 	      "single-char token");
 	corm_drop(out);
 
-	/* 22. phrase queries (stoma_query_phrase). Indexed tokens must avoid
+	/* 22. phrase queries (lemma_query_phrase). Indexed tokens must avoid
 	 * 's' initials — test 21 pins the 's' prefix count to r20+r23. */
-	stoma_index(db, "title", "r24", "Blue Dawn");
-	n = stoma_query_phrase(db, "title", "blue dawn", out, &handled);
+	lemma_index(db, "title", "r24", "Blue Dawn");
+	n = lemma_query_phrase(db, "title", "blue dawn", out, &handled);
 	CHECK(handled == 1 && n == 1 && hd_has(out, "r24"),
 	      "phrase adjacent in order");
 	corm_drop(out);
-	n = stoma_query_phrase(db, "title", "dawn blue", out, &handled);
+	n = lemma_query_phrase(db, "title", "dawn blue", out, &handled);
 	CHECK(n == 0, "phrase rejects reorder");
 	corm_drop(out);
-	n = stoma_query(db, "title", "dawn blue", out, &handled);
+	n = lemma_query(db, "title", "dawn blue", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r24"), "AND stays order-insensitive");
 	corm_drop(out);
 
-	stoma_index(db, "title", "r25", "Blue summer of the dawn");
-	n = stoma_query_phrase(db, "title", "blue dawn", out, &handled);
+	lemma_index(db, "title", "r25", "Blue summer of the dawn");
+	n = lemma_query_phrase(db, "title", "blue dawn", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r24") && !hd_has(out, "r25"),
 	      "phrase rejects spread tokens");
 	corm_drop(out);
-	n = stoma_query(db, "title", "blue dawn", out, &handled);
+	n = lemma_query(db, "title", "blue dawn", out, &handled);
 	CHECK(n == 2 && hd_has(out, "r24") && hd_has(out, "r25"),
 	      "AND still matches spread tokens");
 	corm_drop(out);
 
-	stoma_index(db, "title", "r26", "blackstar manor");
-	n = stoma_query_phrase(db, "title", "black manor", out, &handled);
+	lemma_index(db, "title", "r26", "blackstar manor");
+	n = lemma_query_phrase(db, "title", "black manor", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r26"), "phrase allows per-token prefix");
 	corm_drop(out);
-	n = stoma_query_phrase(db, "title", "star manor", out, &handled);
+	n = lemma_query_phrase(db, "title", "star manor", out, &handled);
 	CHECK(n == 0, "phrase prefix must align at positions");
 	corm_drop(out);
 
-	stoma_index(db, "title", "r27", "line one\nline two");
-	n = stoma_query_phrase(db, "title", "one line", out, &handled);
+	lemma_index(db, "title", "r27", "line one\nline two");
+	n = lemma_query_phrase(db, "title", "one line", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r27"),
 	      "phrase spans line break (token separator)");
 	corm_drop(out);
-	n = stoma_query_phrase(db, "title", "two line", out, &handled);
+	n = lemma_query_phrase(db, "title", "two line", out, &handled);
 	CHECK(n == 0, "phrase order matters across lines");
 	corm_drop(out);
 
-	stoma_index(db, "title", "r28", "Atenção Coração");
-	n = stoma_query_phrase(db, "title", "atenção coração", out, &handled);
+	lemma_index(db, "title", "r28", "Atenção Coração");
+	n = lemma_query_phrase(db, "title", "atenção coração", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r28"), "phrase with accents matches");
 	corm_drop(out);
-	n = stoma_query_phrase(db, "title", "coracao atencao", out, &handled);
+	n = lemma_query_phrase(db, "title", "coracao atencao", out, &handled);
 	CHECK(n == 0, "phrase accent-sensitive");
 	corm_drop(out);
 
-	stoma_index(db, "title", "r29", "Morning Dawn");
-	n = stoma_query_phrase(db, "title", "morning dawn", out, &handled);
+	lemma_index(db, "title", "r29", "Morning Dawn");
+	n = lemma_query_phrase(db, "title", "morning dawn", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r29"), "phrase case-insensitive");
 	corm_drop(out);
 
-	n = stoma_query_phrase(db, "title", "dawn", out, &handled);
+	n = lemma_query_phrase(db, "title", "dawn", out, &handled);
 	CHECK(handled == 1 && n == 3 && hd_has(out, "r24") &&
 	              hd_has(out, "r25") && hd_has(out, "r29"),
 	      "single-token phrase equals AND");
 	corm_drop(out);
 
-	n = stoma_query_phrase(db, "title", "blue,  dawn", out, &handled);
+	n = lemma_query_phrase(db, "title", "blue,  dawn", out, &handled);
 	CHECK(n == 1 && hd_has(out, "r24"), "phrase normalizes punct+spaces");
 	corm_drop(out);
 
-	n = stoma_query_phrase(db, "title", "---", out, &handled);
+	n = lemma_query_phrase(db, "title", "---", out, &handled);
 	CHECK(handled == 0 && n == 0, "zero-token phrase no-op");
 	corm_drop(out);
 
-	n = stoma_query_phrase(db, "title", "nowhere at all", out, &handled);
+	n = lemma_query_phrase(db, "title", "nowhere at all", out, &handled);
 	CHECK(handled == 1 && n == 0, "phrase no match -> 0");
 	corm_drop(out);
 
-	/* 30-35. recall-kernel adapter (rec_axis_fill_tokens / stoma_rank) on a
+	/* 30-35. recall-kernel adapter (rec_axis_fill_tokens / lemma_rank) on a
 	 * dedicated decimal-id db so the raw r1-r29 universe is untouched. */
-	rdb = stoma_open(0);
+	rdb = lemma_open(0);
 	if (rdb) {
-		/* 30. fill-phrase=0 == stoma_query on decimal ids 10-17 */
-		stoma_index(rdb, "title", "10", "Starlight of the night");
-		stoma_index(rdb, "title", "11", "Station one");
-		stoma_index(rdb, "title", "12", "st");
-		stoma_index(rdb, "title", "13", "A Dark Night");
-		stoma_index(rdb, "title", "14", "Black Star");
-		stoma_index(rdb, "title", "15", "1984");
-		stoma_index(rdb, "title", "16", "Pão de Açúcar");
-		stoma_index(rdb, "title", "17", "Estrela negra");
+		/* 30. fill-phrase=0 == lemma_query on decimal ids 10-17 */
+		lemma_index(rdb, "title", "10", "Starlight of the night");
+		lemma_index(rdb, "title", "11", "Station one");
+		lemma_index(rdb, "title", "12", "st");
+		lemma_index(rdb, "title", "13", "A Dark Night");
+		lemma_index(rdb, "title", "14", "Black Star");
+		lemma_index(rdb, "title", "15", "1984");
+		lemma_index(rdb, "title", "16", "Pão de Açúcar");
+		lemma_index(rdb, "title", "17", "Estrela negra");
 		{
 			static const rec_ref_t e10[] = { 10, 13 };
 			static const rec_ref_t e11[] = { 10, 11, 12, 14 };
@@ -518,14 +518,14 @@ int main(void)
 			check_row_fill(out, "", 0, NULL, 0);
 		}
 
-		/* 31. add ids 18-23; fill-phrase=1 == stoma_query_phrase, and
-		 * fill-phrase=0 == stoma_query */
-		stoma_index(rdb, "title", "18", "Blue Dawn");
-		stoma_index(rdb, "title", "19", "Blue summer of the dawn");
-		stoma_index(rdb, "title", "20", "Atenção Coração");
-		stoma_index(rdb, "title", "21", "blackstar manor");
-		stoma_index(rdb, "title", "22", "la la la");
-		stoma_index(rdb, "title", "23", "");
+		/* 31. add ids 18-23; fill-phrase=1 == lemma_query_phrase, and
+		 * fill-phrase=0 == lemma_query */
+		lemma_index(rdb, "title", "18", "Blue Dawn");
+		lemma_index(rdb, "title", "19", "Blue summer of the dawn");
+		lemma_index(rdb, "title", "20", "Atenção Coração");
+		lemma_index(rdb, "title", "21", "blackstar manor");
+		lemma_index(rdb, "title", "22", "la la la");
+		lemma_index(rdb, "title", "23", "");
 		{
 			static const rec_ref_t e18[] = { 18 };
 			static const rec_ref_t e1819[] = { 18, 19 };
@@ -568,11 +568,11 @@ int main(void)
 
 					corm_drop(out);
 					if (p)
-						nn = stoma_query_phrase(
+						nn = lemma_query_phrase(
 						        rdb, "title", rows[i].q,
 						        out, &handled);
 					else
-						nn = stoma_query(
+						nn = lemma_query(
 						        rdb, "title", rows[i].q,
 						        out, &handled);
 					fs = fill_once(rdb, "title", rows[i].q,
@@ -631,7 +631,7 @@ int main(void)
 		{
 			rec_set_t *fs = rec_set_new();
 			float sc;
-			struct stoma_rank_ctx c0;
+			struct lemma_rank_ctx c0;
 
 			CHECK(rec_axis_fill_tokens(NULL, "title", "x", 0, fs) ==
 			              -1,
@@ -648,61 +648,61 @@ int main(void)
 			c0.db = NULL;
 			c0.field = NULL;
 			c0.matched = 0;
-			CHECK(stoma_rank(NULL, 1, &sc) == -1, "rank null ctx");
-			CHECK(stoma_rank(&c0, 1, &sc) == -1, "rank null db");
+			CHECK(lemma_rank(NULL, 1, &sc) == -1, "rank null ctx");
+			CHECK(lemma_rank(&c0, 1, &sc) == -1, "rank null db");
 			c0.db = rdb;
-			CHECK(stoma_rank(&c0, 1, &sc) == -1, "rank null field");
+			CHECK(lemma_rank(&c0, 1, &sc) == -1, "rank null field");
 			c0.field = "title";
-			CHECK(stoma_rank(&c0, 1, NULL) == -1, "rank null score");
+			CHECK(lemma_rank(&c0, 1, NULL) == -1, "rank null score");
 		}
 		{
-			stoma_db_t *xdb = stoma_open(0);
+			lemma_db_t *xdb = lemma_open(0);
 			rec_set_t *fs;
 
-			stoma_index(xdb, "title", "r7", "alpha beta");
-			stoma_index(xdb, "title", "12x", "alpha beta");
+			lemma_index(xdb, "title", "r7", "alpha beta");
+			lemma_index(xdb, "title", "12x", "alpha beta");
 			fs = fill_once(xdb, "title", "alpha", 0);
 			CHECK(fs == NULL, "fill rejects non-decimal row id");
 			if (fs)
 				rec_set_free(fs);
-			stoma_close(xdb);
+			lemma_close(xdb);
 		}
 
-		/* 34. stoma_rank numbers */
+		/* 34. lemma_rank numbers */
 		{
-			struct stoma_rank_ctx ctx = { rdb, "title", 1 };
+			struct lemma_rank_ctx ctx = { rdb, "title", 1 };
 			float sc;
 
-			CHECK(stoma_rank(&ctx, 10, &sc) == 0 &&
+			CHECK(lemma_rank(&ctx, 10, &sc) == 0 &&
 			              float_close(sc, 0.25f),
 			      "rank 10 1/4");
-			CHECK(stoma_rank(&ctx, 13, &sc) == 0 &&
+			CHECK(lemma_rank(&ctx, 13, &sc) == 0 &&
 			              float_close(sc, 1.0f / 3.0f),
 			      "rank 13 1/3");
-			CHECK(stoma_rank(&ctx, 15, &sc) == 0 &&
+			CHECK(lemma_rank(&ctx, 15, &sc) == 0 &&
 			              float_close(sc, 1.0f),
 			      "rank 15 1/1");
-			CHECK(stoma_rank(&ctx, 17, &sc) == 0 &&
+			CHECK(lemma_rank(&ctx, 17, &sc) == 0 &&
 			              float_close(sc, 0.5f),
 			      "rank 17 1/2");
 			{
-				struct stoma_rank_ctx ctx2 = { rdb, "title", 2 };
+				struct lemma_rank_ctx ctx2 = { rdb, "title", 2 };
 
-				CHECK(stoma_rank(&ctx2, 15, &sc) == 0 &&
+				CHECK(lemma_rank(&ctx2, 15, &sc) == 0 &&
 				              float_close(sc, 2.0f),
 				      "rank matched override >1");
 			}
-			CHECK(stoma_rank(&ctx, 999, &sc) == -1,
+			CHECK(lemma_rank(&ctx, 999, &sc) == -1,
 			      "rank missing doc");
 			{
-				struct stoma_rank_ctx ctxb = { rdb, "bogus", 1 };
+				struct lemma_rank_ctx ctxb = { rdb, "bogus", 1 };
 
-				CHECK(stoma_rank(&ctxb, 10, &sc) == -1,
+				CHECK(lemma_rank(&ctxb, 10, &sc) == -1,
 				      "rank missing field");
 			}
-			CHECK(stoma_rank(&ctx, 23, &sc) == -1,
+			CHECK(lemma_rank(&ctx, 23, &sc) == -1,
 			      "rank zero-token doc");
-			CHECK(stoma_rank(&ctx, 10, &sc) == 0 &&
+			CHECK(lemma_rank(&ctx, 10, &sc) == 0 &&
 			              float_close(sc, 0.25f),
 			      "rank round-trip stable");
 		}
@@ -739,11 +739,11 @@ int main(void)
 			      "kernel union");
 			{
 				rec_rank_t *rk = rec_rank_new(2, 0.0f);
-				struct stoma_rank_ctx ctx = { rdb, "title", 1 };
+				struct lemma_rank_ctx ctx = { rdb, "title", 1 };
 				float sc;
 
 				for (i = 0; i < rec_set_count(A); i++)
-					if (stoma_rank(&ctx, rec_set_at(A)[i],
+					if (lemma_rank(&ctx, rec_set_at(A)[i],
 					               &sc) == 0)
 						rec_rank_push(rk, rec_set_at(A)[i],
 						              sc);
@@ -757,11 +757,11 @@ int main(void)
 			}
 			{
 				rec_rank_t *rk = rec_rank_new(1, 0.31f);
-				struct stoma_rank_ctx ctx = { rdb, "title", 1 };
+				struct lemma_rank_ctx ctx = { rdb, "title", 1 };
 				float sc;
 
 				for (i = 0; i < rec_set_count(A); i++)
-					if (stoma_rank(&ctx, rec_set_at(A)[i],
+					if (lemma_rank(&ctx, rec_set_at(A)[i],
 					               &sc) == 0)
 						rec_rank_push(rk, rec_set_at(A)[i],
 						              sc);
@@ -777,9 +777,9 @@ int main(void)
 			rec_set_free(U);
 		}
 
-		/* 36. rec_query "stoma" axis registration: registered fill/rank
+		/* 36. rec_query "lemma" axis registration: registered fill/rank
 		 * dispatch through the axis table must equal the direct
-		 * rec_axis_fill_tokens / stoma_rank calls. */
+		 * rec_axis_fill_tokens / lemma_rank calls. */
 		{
 			int slot = -1;
 			int i;
@@ -787,22 +787,22 @@ int main(void)
 
 			for (i = 0; i < rec_axis_count(); i++) {
 				axis = rec_axis_get(i);
-				if (axis && !strcmp(axis->name, "stoma")) {
+				if (axis && !strcmp(axis->name, "lemma")) {
 					slot = i;
 					break;
 				}
 			}
-			CHECK(slot >= 0, "stoma axis registered");
+			CHECK(slot >= 0, "lemma axis registered");
 			axis = slot >= 0 ? rec_axis_get(slot) : NULL;
 			CHECK(axis && axis->fill && axis->rank && axis->decode,
-			      "stoma axis has fill+rank+decode");
+			      "lemma axis has fill+rank+decode");
 			CHECK(axis && axis->ctx == NULL,
-			      "stoma axis ctx NULL before set_ctx");
+			      "lemma axis ctx NULL before set_ctx");
 			CHECK(slot < 0 || rec_axis_set_ctx(slot, rdb) == 0,
-			      "stoma axis set_ctx ok");
+			      "lemma axis set_ctx ok");
 			axis = slot >= 0 ? rec_axis_get(slot) : NULL;
 			CHECK(axis && axis->ctx == rdb,
-			      "stoma axis ctx == rdb after set_ctx");
+			      "lemma axis ctx == rdb after set_ctx");
 
 			if (axis) {
 				void *p = rec_axis_decode(
@@ -864,18 +864,18 @@ int main(void)
 				/* rank: matched=1, ref 13 ("A Dark Night") */
 				void *rp = rec_axis_decode(
 				        slot, "field=title matched=1");
-				struct stoma_rank_ctx dctx = { rdb, "title", 1 };
+				struct lemma_rank_ctx dctx = { rdb, "title", 1 };
 				float direct_sc = 0.0f, via_sc = 0.0f;
 				int drc, vrc;
 
 				CHECK(rp != NULL, "decode rank params");
-				drc = stoma_rank(&dctx, 13, &direct_sc);
+				drc = lemma_rank(&dctx, 13, &direct_sc);
 				vrc = rp ? axis->rank(axis->ctx, rp, 13,
 				                      &via_sc)
 				         : -1;
 				CHECK(drc == 0 && vrc == 0 &&
 				              float_close(direct_sc, via_sc),
-				      "registered rank == direct stoma_rank");
+				      "registered rank == direct lemma_rank");
 			}
 
 			CHECK(rec_axis_decode(slot, "") != NULL,
@@ -885,38 +885,38 @@ int main(void)
 		}
 
 		/* 36b. D14 rec_axis_cli_options / rec_axis_config_arg
-		 * convention (round 2): stoma declares query/field/phrase/
+		 * convention (round 2): lemma declares query/field/phrase/
 		 * matched; decode defaults field to "text" and makes a bare
-		 * `stoma` searchable when CLI state says so (bare + --query →
+		 * `lemma` searchable when CLI state says so (bare + --query →
 		 * non-NULL; empty spec keeps query=""). Leaf spec wins. */
 		{
 			int slot = -1;
 			int i;
 			const rec_axis_t *axis;
-			extern const struct stoma_cli_read {
+			extern const struct lemma_cli_read {
 				const char *name;
 				int has_arg;
 				const char *help;
 			} *rec_axis_cli_options(void);
 			extern int rec_axis_config_arg(const char *, const char *);
-			struct stoma_params_read {
+			struct lemma_params_read {
 				const char *field;
 				const char *query;
 				int phrase;
 				size_t matched;
 			};
-			const struct stoma_cli_read *o;
+			const struct lemma_cli_read *o;
 			int n = 0;
 			void *p;
 
 			for (i = 0; i < rec_axis_count(); i++) {
 				axis = rec_axis_get(i);
-				if (axis && !strcmp(axis->name, "stoma")) {
+				if (axis && !strcmp(axis->name, "lemma")) {
 					slot = i;
 					break;
 				}
 			}
-			CHECK(slot >= 0, "stoma axis registered (cli test)");
+			CHECK(slot >= 0, "lemma axis registered (cli test)");
 			axis = slot >= 0 ? rec_axis_get(slot) : NULL;
 
 			o = rec_axis_cli_options();
@@ -950,17 +950,17 @@ int main(void)
 			CHECK(rec_axis_config_arg("matched", "-1") != 0,
 			      "matched -1 rejected");
 
-			/* bare stoma with NO CLI query → still NULL */
+			/* bare lemma with NO CLI query → still NULL */
 			p = axis ? axis->decode(NULL) : NULL;
-			CHECK(p == NULL, "bare stoma without --query is NULL");
+			CHECK(p == NULL, "bare lemma without --query is NULL");
 
 			/* bare + --query only → field defaults to text */
 			CHECK(rec_axis_config_arg("query", "harbor") == 0,
 			      "config_arg query ok");
 			p = axis ? axis->decode(NULL) : NULL;
-			CHECK(p != NULL, "bare stoma with --query searchable");
+			CHECK(p != NULL, "bare lemma with --query searchable");
 			if (p) {
-				struct stoma_params_read *sp = p;
+				struct lemma_params_read *sp = p;
 				CHECK(sp->field != NULL &&
 				              !strcmp(sp->field, "text"),
 				      "bare field defaults to text");
@@ -979,7 +979,7 @@ int main(void)
 			p = axis ? axis->decode(NULL) : NULL;
 			CHECK(p != NULL, "bare with full CLI");
 			if (p) {
-				struct stoma_params_read *sp = p;
+				struct lemma_params_read *sp = p;
 				CHECK(sp->field != NULL &&
 				              !strcmp(sp->field, "text"),
 				      "bare field from CLI");
@@ -989,7 +989,7 @@ int main(void)
 
 			/* leaf omitting query= merges the CLI query/field/etc */
 			{
-				struct stoma_params_read *sp;
+				struct lemma_params_read *sp;
 				p = slot < 0 ? NULL
 				        : rec_axis_decode(
 					          slot, "field=title matched=1");
@@ -1008,7 +1008,7 @@ int main(void)
 
 			/* a leaf query= wins over --query; leaf phrase/matched win */
 			{
-				struct stoma_params_read *sp;
+				struct lemma_params_read *sp;
 				p = slot < 0 ? NULL
 				        : rec_axis_decode(
 					          slot, "field=title query=leaftext phrase=0");
@@ -1025,7 +1025,7 @@ int main(void)
 
 			/* empty spec: allocates, keeps query="" (no bare merge) */
 			{
-				struct stoma_params_read *sp;
+				struct lemma_params_read *sp;
 				p = slot < 0 ? NULL
 				        : rec_axis_decode(slot, "");
 				CHECK(p != NULL,
@@ -1043,28 +1043,28 @@ int main(void)
 		}
 
 		/* 37. rec_axis_open (RECALL-KERNEL.md): opens a fresh
-		 * stoma index from a decimal mask spec and returns a ctx
+		 * lemma index from a decimal mask spec and returns a ctx
 		 * usable directly through the registered axis. */
 		{
 			int slot = -1;
 			int i;
 			const rec_axis_t *axis;
 			void *ctx;
-			stoma_db_t *odb;
+			lemma_db_t *odb;
 
 			for (i = 0; i < rec_axis_count(); i++) {
 				axis = rec_axis_get(i);
-				if (axis && !strcmp(axis->name, "stoma")) {
+				if (axis && !strcmp(axis->name, "lemma")) {
 					slot = i;
 					break;
 				}
 			}
-			CHECK(slot >= 0, "stoma axis registered (open test)");
+			CHECK(slot >= 0, "lemma axis registered (open test)");
 
 			ctx = rec_axis_open("");
 			CHECK(ctx != NULL, "rec_axis_open(\"\") returns a ctx");
 			odb = ctx;
-			stoma_index(odb, "title", "100", "hello world");
+			lemma_index(odb, "title", "100", "hello world");
 			CHECK(slot < 0 || rec_axis_set_ctx(slot, ctx) == 0,
 			      "rec_axis_open ctx bindable via set_ctx");
 			axis = slot >= 0 ? rec_axis_get(slot) : NULL;
@@ -1094,10 +1094,10 @@ int main(void)
 					rec_set_free(via);
 			}
 
-			stoma_close(odb);
+			lemma_close(odb);
 		}
 
-		/* 38. stoma_index_ref: rec_ref_t-native write path, id-
+		/* 38. lemma_index_ref: rec_ref_t-native write path, id-
 		 * uniformity boundary shared with libjoint/libsepal/libislet
 		 * rec_axis_fill_* functions. rec_ref_t is u32; UINT32_MAX
 		 * round-trips index -> fill -> rank exactly. The string path
@@ -1107,40 +1107,40 @@ int main(void)
 		{
 			rec_ref_t big = UINT32_MAX; /* u32 ceiling */
 
-			CHECK(stoma_index_ref(rdb, "title", big,
+			CHECK(lemma_index_ref(rdb, "title", big,
 			                       "Refwise Uniform") == 0,
-			      "stoma_index_ref max-u32 ref indexes ok");
+			      "lemma_index_ref max-u32 ref indexes ok");
 			{
 				rec_set_t *fs = fill_once(rdb, "title",
 				                          "refwise", 0);
 
 				CHECK(fs && rec_set_count(fs) == 1 &&
 				              rec_has(fs, big),
-				      "fill_tokens sees stoma_index_ref'd max-u32 ref");
+				      "fill_tokens sees lemma_index_ref'd max-u32 ref");
 				if (fs)
 					rec_set_free(fs);
 			}
 			{
-				struct stoma_rank_ctx ctx = { rdb, "title", 1 };
+				struct lemma_rank_ctx ctx = { rdb, "title", 1 };
 				float sc;
 
-				CHECK(stoma_rank(&ctx, big, &sc) == 0 &&
+				CHECK(lemma_rank(&ctx, big, &sc) == 0 &&
 				              float_close(sc, 0.5f),
-				      "stoma_rank on stoma_index_ref'd max-u32 ref");
+				      "lemma_rank on lemma_index_ref'd max-u32 ref");
 			}
-			CHECK(stoma_index_ref(NULL, "title", big, "x") == -1,
-			      "stoma_index_ref null db");
-			CHECK(stoma_index_ref(rdb, NULL, big, "x") == -1,
-			      "stoma_index_ref null field");
-			CHECK(stoma_index_ref(rdb, "title", big, NULL) == -1,
-			      "stoma_index_ref null value");
+			CHECK(lemma_index_ref(NULL, "title", big, "x") == -1,
+			      "lemma_index_ref null db");
+			CHECK(lemma_index_ref(rdb, NULL, big, "x") == -1,
+			      "lemma_index_ref null field");
+			CHECK(lemma_index_ref(rdb, "title", big, NULL) == -1,
+			      "lemma_index_ref null value");
 
 			/* guard: a >UINT32_MAX decimal row_id is storable via the
 			 * string path (documented), but the fill must abort instead
 			 * of truncating. */
-			CHECK(stoma_index(rdb, "title", "5000000000",
+			CHECK(lemma_index(rdb, "title", "5000000000",
 			                   "Outer Reach") == 0,
-			      "stoma_index stores >UINT32_MAX decimal row_id (string path)");
+			      "lemma_index stores >UINT32_MAX decimal row_id (string path)");
 			{
 				rec_set_t *fs = rec_set_new();
 				int rc = rec_axis_fill_tokens(rdb, "title",
@@ -1155,19 +1155,19 @@ int main(void)
 				unsigned hd = corm_open(NULL, NULL, CM_STR,
 				                        CM_STR, 0xFF, 0);
 				int qhandled = 0;
-				uint32_t n = stoma_query(rdb, "title", "outer",
+				uint32_t n = lemma_query(rdb, "title", "outer",
 				                         hd, &qhandled);
 
 				CHECK(n == 1 && qhandled == 1 &&
 				              hd_has(hd, "5000000000"),
-				      "raw stoma_query still serves >UINT32_MAX row_id (string path)");
+				      "raw lemma_query still serves >UINT32_MAX row_id (string path)");
 				corm_close(hd);
 			}
 		}
-		stoma_close(rdb);
+		lemma_close(rdb);
 	}
 
-	/* 39. stoma_unindex / stoma_unindex_ref: the differential inverse
+	/* 39. lemma_unindex / lemma_unindex_ref: the differential inverse
 	 * (Phase 2A 2A-2). index -> unindex must leave zero residual
 	 * postings for the row — every query token of the original doc must
 	 * no longer reach the row, while shared tokens still reach the
@@ -1180,120 +1180,120 @@ int main(void)
 		                         0);
 		int qh = 0;
 		uint32_t n;
-		struct stoma_rank_ctx rctx;
+		struct lemma_rank_ctx rctx;
 		float sc;
 
 		/* fresh db: the rdb universe above is closed here */
-		rdb = stoma_open(0);
+		rdb = lemma_open(0);
 		CHECK(rdb != NULL, "unindex fixture db opens");
 
 		/* idempotent no-op before anything is stored */
-		CHECK(stoma_unindex(rdb, "u", "ghost") == 0,
+		CHECK(lemma_unindex(rdb, "u", "ghost") == 0,
 		      "unindex absent row -> 0");
-		CHECK(stoma_unindex_ref(rdb, "u", 777) == 0,
+		CHECK(lemma_unindex_ref(rdb, "u", 777) == 0,
 		      "unindex_ref absent row -> 0");
 
-		CHECK(stoma_index(rdb, "u", "u1",
+		CHECK(lemma_index(rdb, "u", "u1",
 		                   "Harbor Light Beacons") == 0,
 		      "unindex fixture u1");
-		CHECK(stoma_index(rdb, "u", "u2",
+		CHECK(lemma_index(rdb, "u", "u2",
 		                   "Harbor Charts Beacons") == 0,
 		      "unindex fixture u2");
-		CHECK(stoma_index(rdb, "u", "u3",
+		CHECK(lemma_index(rdb, "u", "u3",
 		                   "Distant Star") == 0,
 		      "unindex fixture u3");
 		/* same row in another field must survive the u-unindex */
-		CHECK(stoma_index(rdb, "v", "u2",
+		CHECK(lemma_index(rdb, "v", "u2",
 		                   "Harbor Charts Beacons") == 0,
 		      "unindex fixture other field");
 
-		CHECK(stoma_unindex(rdb, "u", "u2") == 0,
-		      "stoma_unindex u2 ok");
+		CHECK(lemma_unindex(rdb, "u", "u2") == 0,
+		      "lemma_unindex u2 ok");
 
 		/* exact residual sweep: posting keys only ever encode the
 		 * doc's own tokens, so querying every original token and
 		 * finding no trace of the row proves zero residual
 		 * postings. Shared tokens must still reach the other row. */
 		corm_drop(uhd);
-		n = stoma_query(rdb, "u", "harbor", uhd, &qh);
+		n = lemma_query(rdb, "u", "harbor", uhd, &qh);
 		CHECK(qh == 1 && n == 1 && hd_has(uhd, "u1") &&
 		              !hd_has(uhd, "u2"),
 		      "unindex: shared token keeps u1, drops u2");
 		corm_drop(uhd);
-		n = stoma_query(rdb, "u", "beacons", uhd, &qh);
+		n = lemma_query(rdb, "u", "beacons", uhd, &qh);
 		CHECK(qh == 1 && n == 1 && hd_has(uhd, "u1") &&
 		              !hd_has(uhd, "u2"),
 		      "unindex: shared token beacons keeps u1, drops u2");
 		corm_drop(uhd);
-		n = stoma_query(rdb, "u", "charts", uhd, &qh);
+		n = lemma_query(rdb, "u", "charts", uhd, &qh);
 		CHECK(qh == 1 && n == 0, "unindex: u2-only token gone");
 		corm_drop(uhd);
-		n = stoma_query(rdb, "u", "harbor beacons", uhd, &qh);
+		n = lemma_query(rdb, "u", "harbor beacons", uhd, &qh);
 		CHECK(qh == 1 && n == 1 && hd_has(uhd, "u1") &&
 		              !hd_has(uhd, "u2"),
 		      "unindex: AND query keeps u1, drops u2");
 		corm_drop(uhd);
 
 		/* untouched row and other field survive */
-		n = stoma_query(rdb, "u", "distant star", uhd, &qh);
+		n = lemma_query(rdb, "u", "distant star", uhd, &qh);
 		CHECK(qh == 1 && n == 1 && hd_has(uhd, "u3"),
 		      "unindex leaves u3 alone");
 		corm_drop(uhd);
-		n = stoma_query(rdb, "v", "charts", uhd, &qh);
+		n = lemma_query(rdb, "v", "charts", uhd, &qh);
 		CHECK(qh == 1 && n == 1 && hd_has(uhd, "u2"),
 		      "unindex is per-field (v/u2 survives)");
 
 		/* second unindex is the idempotent 0 */
-		CHECK(stoma_unindex(rdb, "u", "u2") == 0,
+		CHECK(lemma_unindex(rdb, "u", "u2") == 0,
 		      "unindex twice -> 0");
 
 		/* duplicate-token docs collapse to one posting each and
 		 * unindex leaves zero residual for them too */
-		CHECK(stoma_index(rdb, "u", "u4", "la la la") == 0,
+		CHECK(lemma_index(rdb, "u", "u4", "la la la") == 0,
 		      "unindex fixture dup tokens");
-		CHECK(stoma_unindex(rdb, "u", "u4") == 0,
+		CHECK(lemma_unindex(rdb, "u", "u4") == 0,
 		      "unindex dup-token doc ok");
-		n = stoma_query(rdb, "u", "la", uhd, &qh);
+		n = lemma_query(rdb, "u", "la", uhd, &qh);
 		CHECK(qh == 1 && n == 0, "unindex: dup-token posting gone");
 
 		/* the decimal path: rank reads the doc side-table directly,
 		 * so rank --1 after unindex_ref proves the doc entry is
 		 * gone (and reindexing restores exactly one entry). */
-		CHECK(stoma_index_ref(rdb, "u", 778,
+		CHECK(lemma_index_ref(rdb, "u", 778,
 		                       "Beacon Harbor Words") == 0,
 		      "unindex fixture decimal ref");
 		rctx.db = rdb;
 		rctx.field = "u";
 		rctx.matched = 1;
-		CHECK(stoma_rank(&rctx, 778, &sc) == 0,
+		CHECK(lemma_rank(&rctx, 778, &sc) == 0,
 		      "rank sees indexed decimal ref");
-		CHECK(stoma_unindex_ref(rdb, "u", 778) == 0,
-		      "stoma_unindex_ref ok");
-		CHECK(stoma_rank(&rctx, 778, &sc) == -1,
+		CHECK(lemma_unindex_ref(rdb, "u", 778) == 0,
+		      "lemma_unindex_ref ok");
+		CHECK(lemma_rank(&rctx, 778, &sc) == -1,
 		      "rank misses after unindex_ref (doc entry gone)");
-		n = stoma_query(rdb, "u", "beacon", uhd, &qh);
+		n = lemma_query(rdb, "u", "beacon", uhd, &qh);
 		CHECK(n == 0 || !hd_has(uhd, "778"),
 		      "unindex_ref: postings gone");
-		CHECK(stoma_unindex_ref(rdb, "u", 778) == 0,
+		CHECK(lemma_unindex_ref(rdb, "u", 778) == 0,
 		      "unindex_ref twice -> 0");
 
-		/* NULL contracts mirror stoma_index */
-		CHECK(stoma_unindex(NULL, "u", "u1") == -1,
+		/* NULL contracts mirror lemma_index */
+		CHECK(lemma_unindex(NULL, "u", "u1") == -1,
 		      "unindex null db");
-		CHECK(stoma_unindex(rdb, NULL, "u1") == -1,
+		CHECK(lemma_unindex(rdb, NULL, "u1") == -1,
 		      "unindex null field");
-		CHECK(stoma_unindex(rdb, "u", NULL) == -1,
+		CHECK(lemma_unindex(rdb, "u", NULL) == -1,
 		      "unindex null row");
-		CHECK(stoma_unindex_ref(NULL, "u", 1) == -1,
+		CHECK(lemma_unindex_ref(NULL, "u", 1) == -1,
 		      "unindex_ref null db");
-		CHECK(stoma_unindex_ref(rdb, NULL, 1) == -1,
+		CHECK(lemma_unindex_ref(rdb, NULL, 1) == -1,
 		      "unindex_ref null field");
 
 		corm_close(uhd);
-		stoma_close(rdb);
+		lemma_close(rdb);
 		rdb = NULL;
 	}
-	stoma_close(db);
+	lemma_close(db);
 	corm_close(out);
 
 	printf("Results: %d/%d passed", total - failures, total);

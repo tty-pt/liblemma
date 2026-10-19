@@ -9,7 +9,7 @@ jobs:
   build:
     uses: tty-pt/ci/.github/workflows/all-in-one.yml@main
     with:
-      name: libstoma
+      name: liblemma
       publish_to: "deb,apk,rpm,brew,openbsd,winget"
       deps: "libcorm"
       deps_winget_tty: "libqsys,libcorm"

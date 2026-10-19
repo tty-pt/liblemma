@@ -1,4 +1,4 @@
-CFLAGS-libstoma-o := -fPIC
+CFLAGS-liblemma-o := -fPIC
 CFLAGS-token-o := -fPIC
-CFLAGS-stoma_test-o :=
-CFLAGS-stoma_prop_test-o :=
+CFLAGS-lemma_test-o :=
+CFLAGS-lemma_prop_test-o :=

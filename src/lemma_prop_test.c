@@ -1,9 +1,9 @@
 /*
- * stoma_prop_test — differential (randomized) test for stoma.
+ * lemma_prop_test — differential (randomized) test for lemma.
  *
  * Generates deterministic random rows and queries (fixed LCG seeds), runs
- * stoma_query for each, and compares the result against an independent
- * reference implementation built solely on the public API (stoma_fold + a
+ * lemma_query for each, and compares the result against an independent
+ * reference implementation built solely on the public API (lemma_fold + a
  * local tokenizer + per-token prefix AND). Any mismatch is reported with the
  * seed and inputs, and the run fails. Seeds are fixed so failures reproduce.
  */
@@ -13,7 +13,7 @@
 #include <locale.h>
 #include <ttypt/corm.h>
 #include <ttypt/rec.h>
-#include "stoma/stoma.h"
+#include "ttypt/lemma.h"
 
 #define MAX_ROWS 300
 #define MAX_FIELDS 2
@@ -58,7 +58,7 @@ typedef struct {
 	int n;
 } toks_t;
 
-/* Fold + tokenize a value exactly the way stoma does, but independently. */
+/* Fold + tokenize a value exactly the way lemma does, but independently. */
 static void fold_tokens(const char *value, toks_t *t)
 {
 	char folded[8192];
@@ -68,7 +68,7 @@ static void fold_tokens(const char *value, toks_t *t)
 	t->n = 0;
 	if (!value)
 		return;
-	if (stoma_fold(folded, sizeof(folded), value) < 0)
+	if (lemma_fold(folded, sizeof(folded), value) < 0)
 		return;
 	p = folded;
 	while (*p) {
@@ -103,7 +103,7 @@ static void fold_tokens(const char *value, toks_t *t)
 
 static toks_t row_toks[MAX_ROWS][MAX_FIELDS];
 static int row_has[MAX_ROWS][MAX_FIELDS];
-static stoma_db_t *db;
+static lemma_db_t *db;
 
 static void gen_row_value(char *value, size_t vsz, int *present, toks_t *t)
 {
@@ -325,14 +325,14 @@ static int check_fill(unsigned long seed, int q, const char *query, int fi,
 		for (r = 0; r < MAX_ROWS; r++)
 			if (match_fn(r, fi, qt) && row_toks[r][fi].n > 0 &&
 			    row_toks[r][fi].n < MAX_VT) {
-				struct stoma_rank_ctx c = { db,
+				struct lemma_rank_ctx c = { db,
 				                              field_names[fi],
 				                              1 };
 				float score;
 				float e;
 				float err;
 
-				if (stoma_rank(&c, (rec_ref_t)r, &score) != 0 ||
+				if (lemma_rank(&c, (rec_ref_t)r, &score) != 0 ||
 				    score <= 0.0f) {
 					printf("seed %lu q%d: rank fail row "
 					       "%d\n",
@@ -363,7 +363,7 @@ static int run_seed(unsigned long seed)
 	int q;
 
 	rng_state = seed;
-	stoma_clear(db);
+	lemma_clear(db);
 
 	/* generate + index rows */
 	{
@@ -381,7 +381,7 @@ static int run_seed(unsigned long seed)
 				if (!row_has[r][f])
 					continue;
 				snprintf(rid, sizeof(rid), "%d", r);
-				if (stoma_index(
+				if (lemma_index(
 				            db, field_names[f], rid, value) !=
 				    0)
 					failures++;
@@ -403,11 +403,11 @@ static int run_seed(unsigned long seed)
 		fold_tokens(query, &qt);
 
 		out_hd = corm_open(NULL, NULL, CM_STR, CM_STR, 0xFF, 0);
-		n = stoma_query(db, field_names[fi], query, out_hd, &handled);
+		n = lemma_query(db, field_names[fi], query, out_hd, &handled);
 
 		if ((qt.n > 0) != (handled > 0)) {
 			printf("seed %lu q%d: handled mismatch "
-			       "(stoma=%d ref=%d) query='%s'\n",
+			       "(lemma=%d ref=%d) query='%s'\n",
 			       seed, q, handled, qt.n > 0, query);
 			failures++;
 			corm_close(out_hd);
@@ -425,7 +425,7 @@ static int run_seed(unsigned long seed)
 				if (failures < 5)
 					printf("seed %lu q%d: row %s "
 					       "field '%s' query='%s' "
-					       "stoma=%d ref=%d\n",
+					       "lemma=%d ref=%d\n",
 					       seed, q, rid, field_names[fi],
 					       query, got, exp);
 				failures++;
@@ -433,7 +433,7 @@ static int run_seed(unsigned long seed)
 		}
 		if ((uint32_t)exp_total != n) {
 			printf("seed %lu q%d: count mismatch "
-			       "(stoma=%u ref=%d) query='%s'\n",
+			       "(lemma=%u ref=%d) query='%s'\n",
 			       seed, q, (unsigned)n, exp_total, query);
 			failures++;
 		}
@@ -441,7 +441,7 @@ static int run_seed(unsigned long seed)
 		failures += check_fill(
 		        seed, q, query, fi, &qt, 0, ref_matches);
 
-		/* phrase variant: the same query through stoma_query_phrase,
+		/* phrase variant: the same query through lemma_query_phrase,
 		 * compared against the contiguous-subsequence reference. */
 		{
 			unsigned out_hd2 =
@@ -451,11 +451,11 @@ static int run_seed(unsigned long seed)
 			int exp_total2 = 0;
 			int r2;
 
-			n2 = stoma_query_phrase(
+			n2 = lemma_query_phrase(
 			        db, field_names[fi], query, out_hd2, &handled2);
 			if ((qt.n > 0) != (handled2 > 0)) {
 				printf("seed %lu q%d: phrase handled mismatch "
-				       "(stoma=%d ref=%d) query='%s'\n",
+				       "(lemma=%d ref=%d) query='%s'\n",
 				       seed, q, handled2, qt.n > 0, query);
 				failures++;
 				corm_close(out_hd2);
@@ -476,7 +476,7 @@ static int run_seed(unsigned long seed)
 						       "row "
 						       "%s field '%s' "
 						       "query='%s' "
-						       "stoma=%d ref=%d\n",
+						       "lemma=%d ref=%d\n",
 						       seed, q, rid2,
 						       field_names[fi], query,
 						       got2, exp2);
@@ -485,7 +485,7 @@ static int run_seed(unsigned long seed)
 			}
 			if ((uint32_t)exp_total2 != n2) {
 				printf("seed %lu q%d: phrase count mismatch "
-				       "(stoma=%u ref=%d) query='%s'\n",
+				       "(lemma=%u ref=%d) query='%s'\n",
 				       seed, q, (unsigned)n2, exp_total2,
 				       query);
 				failures++;
@@ -507,16 +507,16 @@ int main(void)
 	int total_fail = 0;
 	size_t i;
 
-	db = stoma_open(0);
+	db = lemma_open(0);
 	if (!db) {
-		printf("stoma_open failed\n");
+		printf("lemma_open failed\n");
 		return 1;
 	}
 
 	for (i = 0; i < sizeof(seeds) / sizeof(seeds[0]); i++)
 		total_fail += run_seed(seeds[i]);
 
-	stoma_close(db);
+	lemma_close(db);
 
 	if (total_fail) {
 		printf("Results: %d FAILURES\n", total_fail);

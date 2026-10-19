@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-#include "stoma/stoma.h"
+#include "ttypt/lemma.h"
 
 /* Fold a UTF-8 string to lowercase, preserving accents (accent-sensitive
  * search). ASCII A-Z and the Latin-1 Supplement uppercase letters
@@ -9,7 +9,7 @@
  * lowercased; everything else is copied verbatim. Lowercasing never grows
  * the output, so the result fits whenever outsz > strlen(in). The fold is
  * locale-independent (no iconv, no setlocale). */
-int stoma_fold(char *out, size_t outsz, const char *in)
+int lemma_fold(char *out, size_t outsz, const char *in)
 {
 	const char *in_ptr = in;
 	char *out_ptr = out;
@@ -52,7 +52,7 @@ int stoma_fold(char *out, size_t outsz, const char *in)
  * alphanumeric or any byte >= 0x80 (UTF-8 accented letters and other
  * non-ASCII letters stay inside their token). Everything else (space,
  * punctuation, '?') separates tokens. */
-void stoma_tokenize(
+void lemma_tokenize(
         const char *folded, void (*cb)(const char *tok, size_t len, void *user),
         void *user)
 {
@@ -79,7 +79,7 @@ void stoma_tokenize(
 	}
 }
 
-int stoma_list_contains(const char *list, const char *token)
+int lemma_list_contains(const char *list, const char *token)
 {
 	if (!list || !list[0] || !token || !token[0])
 		return 0;
@@ -101,14 +101,14 @@ int stoma_list_contains(const char *list, const char *token)
 	return 0;
 }
 
-int stoma_list_append(char *out, size_t out_sz, const char *token)
+int lemma_list_append(char *out, size_t out_sz, const char *token)
 {
 	size_t used;
 	size_t len;
 
 	if (!out || !token || !token[0])
 		return 0;
-	if (stoma_list_contains(out, token))
+	if (lemma_list_contains(out, token))
 		return 0;
 
 	used = strlen(out);
@@ -145,7 +145,7 @@ static void str_trim_internal(char *s)
 	}
 }
 
-int stoma_list_normalize(const char *input, char *out, size_t out_sz)
+int lemma_list_normalize(const char *input, char *out, size_t out_sz)
 {
 	char copy[8192];
 	char *tok;
@@ -167,7 +167,7 @@ int stoma_list_normalize(const char *input, char *out, size_t out_sz)
 		snprintf(t, sizeof(t), "%s", tok);
 		str_trim_internal(t);
 		if (t[0])
-			stoma_list_append(out, out_sz, t);
+			lemma_list_append(out, out_sz, t);
 		tok = strtok_r(NULL, "\r\n", &saveptr);
 	}
 	return 0;
