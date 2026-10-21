@@ -13,6 +13,20 @@
 
 ---
 
+## Why liblemma? (Full-Text Search That Respects Human Languages)
+
+Most search tokenizers collapse or strip accents during ASCII folding:
+> *"In Portuguese, 'pão' means bread, while 'pao' means stick/wood. In Spanish, 'año' means year, while 'ano' means anus."*
+
+Standard ASCII transliteration collapses these distinct words, creating false search hits, broken relevance rankings, and embarrassing user results.
+
+`liblemma` solves this in pure C:
+- **Diacritics Strictly Preserved**: Lowercases text and normalizes whitespace while strictly preserving accent marks (`pão ≠ pao`).
+- **Contiguous Phrase Search**: Finds exact phrases (`"Pão de Açúcar"`) or prefix stems (`cora*` matches `Coração`) in memory-mapped inverted indexes.
+- **Zero Locale Dependencies**: Implemented in self-contained C without linking `iconv` or requiring system locale generation (`/etc/locale.gen`).
+
+---
+
 ## Search & Recall Integration
 
 `liblemma` provides fast lexical tokenization and inverted index search:
