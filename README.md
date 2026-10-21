@@ -17,7 +17,22 @@
 
 `liblemma` provides fast lexical tokenization and inverted index search:
 - **Data Engine FTS**: Powers accent-preserving full-text search across string fields in [libhyle](https://github.com/tty-pt/hyle).
-- **Recall Kernel (Text Axis)**: Matches stream directly into candidate sets via `rec_axis_fill_tokens` in [libcorm](https://github.com/tty-pt/libcorm).
+- **Recall Kernel (Text Axis)**: Matches stream directly into candidate sets via `rec_axis_fill_tokens` registered with [libcorm](https://github.com/tty-pt/libcorm) (`<ttypt/cormr.h>`).
+
+---
+
+## Diacritic Preservation: Why Accents Matter
+
+Standard ASCII folding collapses accented vowels (`pão` $\rightarrow$ `pao`), causing severe semantic collisions in romance and Germanic languages. `liblemma` lowercases ASCII and Latin-1 characters while strictly preserving diacritic identity:
+
+| Input Text | Standard ASCII Folding | `lemma_fold` Output | Semantic Correctness |
+| :--- | :--- | :--- | :--- |
+| `Pão` (Bread) | `pao` | `pão` | Distinct from `pau` or `pao` |
+| `Coração` (Heart) | `coracao` | `coração` | Accents preserved |
+| `München` (Munich) | `munchen` | `münchen` | Umlaut preserved |
+| `Café` (Coffee) | `cafe` | `café` | Acute accent preserved |
+
+Zero external dependencies: `liblemma` requires no `iconv` dynamic libraries and no operating system locale files (`/etc/locale.gen`).
 
 ---
 
@@ -62,7 +77,7 @@ cc fts_demo.c $(pkg-config --cflags --libs lemma)
 | `lemma_open` | `lemma_db_t *lemma_open(unsigned mask)` | Open in-memory inverted index table |
 | `lemma_index` | `int lemma_index(db, field, row_id, val)` | Tokenize and index a document field |
 | `lemma_query` | `uint32_t lemma_query(db, field, q, out_hd, &h)` | Prefix search matching word beginnings |
-| `lemma_query_phrase` | `uint32_t lemma_query_phrase(...)` | Contiguous exact phrase query |
+| `lemma_query_phrase` | `uint32_t lemma_query_phrase(db, f, phrase, out, &h)` | Contiguous multi-word exact phrase query |
 | `lemma_fold` | `int lemma_fold(out, outsz, in)` | Lowercase ASCII and Latin-1 while keeping diacritics |
 | `rec_axis_fill_tokens` | `int rec_axis_fill_tokens(db, field, q, phrase, set)` | Stream token matches into a sealed recall candidate set |
 
@@ -70,7 +85,7 @@ cc fts_demo.c $(pkg-config --cflags --libs lemma)
 
 ---
 
-## Design Philosophy: Diacritics Matter
+## Design Philosophy: Constraints as Superpowers
 
 * **Strict Accent Preservation**: Unlike standard POSIX collations that flatten diacritics (`pao == pão`), `lemma` strictly honors linguistic meaning while lowercasing characters, preventing incorrect lexical collisions.
 * **Zero External Dependencies**: Implemented entirely in portable C without linking `iconv` or depending on system locales (`/etc/locale.gen`).
