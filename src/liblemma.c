@@ -17,9 +17,11 @@ void lemma_tokenize(
         void *user);
 
 struct lemma_db {
-	unsigned hd;     /* CM_SORTED, CM_STR → CM_STR inverted index */
-	unsigned doc_hd; /* CM_SORTED, CM_STR → CM_STR folded text per
-	                    (field,row) */
+	unsigned hd;          /* CM_SORTED, CM_STR → CM_STR inverted index: "term_id\trow_id" → "" */
+	unsigned doc_hd;      /* CM_SORTED, CM_STR → CM_STR folded text per (field,row) */
+	unsigned term_hd;     /* CM_SORTED, CM_STR → CM_U32: "field\ttoken" → term_id */
+	unsigned term_rev_hd; /* CM_U32 → CM_STR: term_id → "field\ttoken" */
+	uint32_t next_term_id;/* Monotonic term ID generator starting at 1 */
 };
 
 /* D14 axis-contributed CLI option state (rec_axis_config_arg, round 2).
@@ -50,6 +52,22 @@ lemma_db_t *lemma_open(unsigned mask)
 		free(db);
 		return NULL;
 	}
+	db->term_hd = corm_open(NULL, NULL, CM_STR, CM_U32, mask, CM_SORTED);
+	if (!db->term_hd) {
+		corm_close(db->hd);
+		corm_close(db->doc_hd);
+		free(db);
+		return NULL;
+	}
+	db->term_rev_hd = corm_open(NULL, NULL, CM_U32, CM_STR, mask, 0);
+	if (!db->term_rev_hd) {
+		corm_close(db->hd);
+		corm_close(db->doc_hd);
+		corm_close(db->term_hd);
+		free(db);
+		return NULL;
+	}
+	db->next_term_id = 1;
 	return db;
 }
 
@@ -59,6 +77,8 @@ void lemma_close(lemma_db_t *db)
 		return;
 	corm_close(db->hd);
 	corm_close(db->doc_hd);
+	corm_close(db->term_hd);
+	corm_close(db->term_rev_hd);
 	free(db);
 }
 
@@ -68,33 +88,76 @@ void lemma_clear(lemma_db_t *db)
 		return;
 	corm_drop(db->hd);
 	corm_drop(db->doc_hd);
+	corm_drop(db->term_hd);
+	corm_drop(db->term_rev_hd);
+	db->next_term_id = 1;
+}
+
+/* ---- term interning ---- */
+
+static uint32_t lemma_term_intern(lemma_db_t *db, const char *field, const char *tok, size_t len)
+{
+	size_t fld = strlen(field);
+	char *key = malloc(fld + 1 + len + 1);
+	if (!key)
+		return 0;
+	memcpy(key, field, fld);
+	key[fld] = '\t';
+	memcpy(key + fld + 1, tok, len);
+	key[fld + 1 + len] = '\0';
+
+	const uint32_t *existing = (const uint32_t *)corm_get(db->term_hd, key);
+	if (existing) {
+		uint32_t tid = *existing;
+		free(key);
+		return tid;
+	}
+
+	uint32_t tid = db->next_term_id++;
+	corm_put(db->term_hd, key, &tid);
+	corm_put(db->term_rev_hd, &tid, key);
+	free(key);
+	return tid;
+}
+
+static uint32_t lemma_term_lookup(lemma_db_t *db, const char *field, const char *tok, size_t len)
+{
+	size_t fld = strlen(field);
+	char *key = malloc(fld + 1 + len + 1);
+	if (!key)
+		return 0;
+	memcpy(key, field, fld);
+	key[fld] = '\t';
+	memcpy(key + fld + 1, tok, len);
+	key[fld + 1 + len] = '\0';
+
+	const uint32_t *existing = (const uint32_t *)corm_get(db->term_hd, key);
+	uint32_t tid = existing ? *existing : 0;
+	free(key);
+	return tid;
 }
 
 /* ---- index ---- */
 
 typedef struct {
+	lemma_db_t *db;
 	const char *field;
 	const char *row_id;
-	unsigned hd;
 } index_ctx_t;
 
 static void index_token(const char *tok, size_t len, void *user)
 {
 	index_ctx_t *ctx = (index_ctx_t *)user;
-	size_t fld = strlen(ctx->field);
-	size_t rid = strlen(ctx->row_id);
-	char *key;
+	uint32_t tid = lemma_term_intern(ctx->db, ctx->field, tok, len);
+	if (!tid)
+		return;
 
-	key = malloc(fld + rid + len + 3);
+	size_t rid = strlen(ctx->row_id);
+	char *key = malloc(8 + 1 + rid + 1);
 	if (!key)
 		return;
-	memcpy(key, ctx->field, fld);
-	key[fld] = '\t';
-	memcpy(key + fld + 1, tok, len);
-	key[fld + 1 + len] = '\t';
-	memcpy(key + fld + 2 + len, ctx->row_id, rid);
-	key[fld + 2 + len + rid] = '\0';
-	corm_put(ctx->hd, key, "");
+	snprintf(key, 8 + 1 + rid + 1, "%08x\t%s", tid, ctx->row_id);
+	corm_put(ctx->db->hd, key, "");
 	free(key);
 }
 
@@ -117,9 +180,9 @@ int lemma_index(
 		free(folded);
 		return 0;
 	}
+	ctx.db = db;
 	ctx.field = field;
 	ctx.row_id = row_id;
-	ctx.hd = db->hd;
 	lemma_tokenize(folded, index_token, &ctx);
 
 	/* Side table: store the folded text per (field,row_id) so phrase
@@ -224,18 +287,14 @@ int lemma_unindex(lemma_db_t *db, const char *field, const char *row_id)
 	 * so deleting each occurrence's key is exact; repeats are
 	 * harmless no-ops. */
 	for (i = 0; i < toks.n; i++) {
-		size_t tlen = toks.ent[i].len;
-		size_t klen = fld + 1 + tlen + 1 + rid;
-		char *key = malloc(klen + 1);
-
+		uint32_t tid = lemma_term_lookup(db, field, toks.ent[i].tok, toks.ent[i].len);
+		if (!tid)
+			continue;
+		size_t rid_len = strlen(row_id);
+		char *key = malloc(8 + 1 + rid_len + 1);
 		if (!key)
 			continue;
-		memcpy(key, field, fld);
-		key[fld] = '\t';
-		memcpy(key + fld + 1, toks.ent[i].tok, tlen);
-		key[fld + 1 + tlen] = '\t';
-		memcpy(key + fld + 2 + tlen, row_id, rid);
-		key[klen] = '\0';
+		snprintf(key, 8 + 1 + rid_len + 1, "%08x\t%s", tid, row_id);
 		corm_del(db->hd, key);
 		free(key);
 	}
@@ -520,25 +579,33 @@ static uint32_t lemma_query_any(
 		if (!nxt_hd)
 			break;
 
-		/* Prefix scan: index map is CM_SORTED, CM_RANGE iterates from
-		 * the lower bound to the end; break once the prefix no longer
-		 * matches (contiguous keys). */
-		cur = corm_iter(db->hd, prefix, CM_RANGE);
+		/* Prefix scan over terms in term_hd: term_hd is CM_SORTED,
+		 * CM_RANGE iterates from prefix to end; break when prefix
+		 * no longer matches. */
+		cur = corm_iter(db->term_hd, prefix, CM_RANGE);
 		while (corm_next(&k, &v, cur)) {
-			const char *key = (const char *)k;
-			const char *sep1;
-			const char *sep2;
+			const char *tkey = (const char *)k;
+			uint32_t tid;
+			char post_prefix[10];
+			uint32_t pcur;
+			const void *pk;
+			const void *pv;
 
-			if (strncmp(key, prefix, plen) != 0)
+			if (strncmp(tkey, prefix, plen) != 0)
 				break;
-			sep1 = strchr(key, '\t');
-			if (!sep1)
-				continue;
-			sep2 = strchr(sep1 + 1, '\t');
-			if (!sep2)
-				continue;
-			if (!cur_hd || corm_get(cur_hd, sep2 + 1))
-				corm_put(nxt_hd, sep2 + 1, "");
+			tid = *(const uint32_t *)v;
+			snprintf(post_prefix, sizeof(post_prefix), "%08x\t", tid);
+
+			pcur = corm_iter(db->hd, post_prefix, CM_RANGE);
+			while (corm_next(&pk, &pv, pcur)) {
+				const char *pkey = (const char *)pk;
+				if (strncmp(pkey, post_prefix, 9) != 0)
+					break;
+				const char *rid = pkey + 9;
+				if (!cur_hd || corm_get(cur_hd, rid))
+					corm_put(nxt_hd, rid, "");
+			}
+			corm_fin(pcur);
 		}
 		corm_fin(cur);
 
