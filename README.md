@@ -92,6 +92,8 @@ cc fts_demo.c $(pkg-config --cflags --libs lemma)
 | `lemma_index` | `int lemma_index(db, field, row_id, val)` | Tokenize and index a document field |
 | `lemma_query` | `uint32_t lemma_query(db, field, q, out_hd, &h)` | Prefix search matching word beginnings |
 | `lemma_query_phrase` | `uint32_t lemma_query_phrase(db, f, phrase, out, &h)` | Contiguous multi-word exact phrase query |
+| `lemma_tok_encode` | `size_t lemma_tok_encode(const char *text, uint16_t *tokens, size_t max_tokens)` | Encode text into lossless subword BPE token IDs |
+| `lemma_tok_decode` | `size_t lemma_tok_decode(const uint16_t *tokens, size_t count, char *out, size_t outsz)` | Decode subword tokens back to original string |
 | `lemma_fold` | `int lemma_fold(out, outsz, in)` | Lowercase ASCII and Latin-1 while keeping diacritics |
 | `rec_axis_fill_tokens` | `int rec_axis_fill_tokens(db, field, q, phrase, set)` | Stream token matches into a sealed recall candidate set |
 

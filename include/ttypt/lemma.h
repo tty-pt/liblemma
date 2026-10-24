@@ -340,4 +340,149 @@ int lemma_list_contains(const char *list, const char *token);
  */
 int lemma_list_append(char *out, size_t out_sz, const char *token);
 
+/* ---- Lossless Tokenizer & Lexicon Engine (lemma_tok) ---- */
+
+#define LEMMA_TOK_MAX_VOCAB 32768
+#define LEMMA_TOK_BASE_VOCAB 16384
+
+typedef struct lemma_tok_vocab lemma_tok_vocab_t;
+
+/**
+ * @brief Initialize or obtain the shared global/default vocabulary.
+ * @return Shared vocabulary handle, or NULL on failure.
+ */
+const lemma_tok_vocab_t *lemma_tok_vocab_default(void);
+
+/**
+ * @brief Create a dynamic vocabulary instance (optionally extending a base vocab).
+ * @param[in] base Optional base vocabulary (can be NULL or lemma_tok_vocab_default()).
+ * @return New vocabulary instance.
+ */
+lemma_tok_vocab_t *lemma_tok_vocab_new(const lemma_tok_vocab_t *base);
+
+/**
+ * @brief Free a dynamic vocabulary instance.
+ */
+void lemma_tok_vocab_free(lemma_tok_vocab_t *v);
+
+/**
+ * @brief Load additional words from a plaintext wordlist file into a dynamic vocabulary.
+ * @param[in,out] v        Dynamic vocabulary instance.
+ * @param[in]     filepath Path to plaintext file (one word per line).
+ * @return 0 on success, -1 on failure.
+ */
+int lemma_tok_vocab_load_file(lemma_tok_vocab_t *v, const char *filepath);
+
+/**
+ * @brief Encode a text string losslessly into an array of 16-bit token IDs.
+ *
+ * Words matching DAFSA/lexicon emit their Word Token IDs (256..32767).
+ * Known delimiters emit Delimiter Token IDs.
+ * Fallback: bytes are emitted directly as byte primitives (0..255).
+ * Guaranteed 100% invertible: lemma_tok_decode(vocab, tokens, n, out, cap, NULL) == src.
+ *
+ * @param[in]  vocab     Vocabulary handle (or NULL for default).
+ * @param[in]  src       Source text.
+ * @param[in]  src_len   Length of source text in bytes.
+ * @param[out] dst       Destination array for token IDs.
+ * @param[in]  dst_cap   Capacity of @p dst in uint16_t elements.
+ * @param[out] dst_len   Receives the number of tokens written.
+ * @return 0 on success, -1 on buffer overflow or NULL args.
+ */
+int lemma_tok_encode(const lemma_tok_vocab_t *vocab, const char *src, size_t src_len,
+                     uint16_t *dst, size_t dst_cap, size_t *dst_len);
+
+/**
+ * @brief Decode an array of 16-bit token IDs losslessly into a character buffer.
+ *
+ * Reconstructs the exact original text.
+ *
+ * @param[in]  vocab         Vocabulary handle (or NULL for default).
+ * @param[in]  tokens        Array of token IDs.
+ * @param[in]  n_tokens      Count of tokens.
+ * @param[out] dst           Destination character buffer.
+ * @param[in]  dst_cap       Capacity of @p dst in bytes.
+ * @param[out] bytes_written Receives the number of bytes written (excluding NUL).
+ * @return 0 on success, -1 on invalid token ID, -2 on buffer overflow.
+ */
+int lemma_tok_decode(const lemma_tok_vocab_t *vocab, const uint16_t *tokens, size_t n_tokens,
+                     char *dst, size_t dst_cap, size_t *bytes_written);
+
+size_t lemma_tok_unpack_varint(const uint8_t *src, size_t src_len, uint16_t *dst, size_t dst_cap);
+
+/**
+ * @brief Query the vocabulary for fuzzy or substring matching token IDs (Tier 1).
+ *
+ * Finds all Word Token IDs within Levenshtein distance @p max_edit_distance of @p term
+ * (or matching prefix/substring).
+ *
+ * @param[in]  vocab             Vocabulary handle (or NULL for default).
+ * @param[in]  term              Query term (folded via lemma_fold).
+ * @param[in]  max_edit_distance Maximum Levenshtein distance (0 = exact/prefix, 1 or 2 = fuzzy).
+ * @param[out] out_token_ids     Destination array for matching token IDs.
+ * @param[in]  out_cap           Capacity of @p out_token_ids.
+ * @param[out] out_count         Receives count of matching token IDs.
+ * @return 0 on success, -1 on buffer overflow or NULL args.
+ */
+int lemma_tok_vocab_match(const lemma_tok_vocab_t *vocab, const char *term, int max_edit_distance,
+                          uint16_t *out_token_ids, size_t out_cap, size_t *out_count);
+
+/**
+ * @brief Check if a token ID represents a searchable word (vs delimiter/whitespace/raw byte).
+ * @param[in] vocab    Vocabulary handle.
+ * @param[in] token_id Token ID.
+ * @return 1 if token is a searchable word, 0 otherwise.
+ */
+int lemma_tok_is_word(const lemma_tok_vocab_t *vocab, uint16_t token_id);
+
+/**
+ * @brief Compute Levenshtein edit distance between two strings.
+ * @param[in] s1 First string.
+ * @param[in] l1 Length of first string.
+ * @param[in] s2 Second string.
+ * @param[in] l2 Length of second string.
+ * @return Levenshtein distance (insertions, deletions, substitutions).
+ */
+int lemma_levenshtein(const char *s1, size_t l1, const char *s2, size_t l2);
+
+/**
+ * @brief Index a pre-tokenized token stream under (field, row_id).
+ *
+ * Enforces Selective Lexical Indexing: only Word tokens (lemma_tok_is_word)
+ * generate inverted index postings, filtering delimiters and whitespace.
+ * Stores the token sequence for ultra-fast phrase adjacency checking without
+ * duplicate folded string tables.
+ *
+ * @param[in] db       Index handle.
+ * @param[in] field    Field name.
+ * @param[in] row_id   Row id string.
+ * @param[in] tokens   Array of token IDs.
+ * @param[in] n_tokens Count of tokens.
+ * @return 0 on success, -1 on invalid arguments.
+ */
+int lemma_index_tokens(lemma_db_t *db, const char *field, const char *row_id,
+                       const uint16_t *tokens, size_t n_tokens);
+
+/**
+ * @brief Fuzzy query: match with Levenshtein edit distance tolerance.
+ *
+ * Query tokens match terms within @p max_edit_distance. Matches are ANDed.
+ *
+ * @param[in]  db                Index handle.
+ * @param[in]  field             Field name.
+ * @param[in]  query             Query string.
+ * @param[in]  max_edit_distance Maximum Levenshtein distance (e.g. 1 or 2).
+ * @param[in]  out_hd            Caller-opened corm handle for result rows.
+ * @param[out] handled           1 when query had >= 1 token, else 0.
+ * @return Number of matches written.
+ */
+uint32_t lemma_query_fuzzy(lemma_db_t *db, const char *field, const char *query,
+                           int max_edit_distance, uint32_t out_hd, int *handled);
+
+/**
+ * @brief Conventional typed axis store plugin export for libcorm.
+ */
+int rec_axis_store_typed(void *ctx, const char *spec, rec_ref_t ref,
+                         const void *blob, size_t len, uint32_t qtype);
+
 #endif
