@@ -1,23 +1,25 @@
 FOLDER := ttypt
-all := liblemma lemma_test lemma_prop_test lemma_axis_store_test lemma_axis_roundtrip_test lemma_axis_rebuild_test
+all := liblemma lemma_test lemma_prop_test lemma_axis_store_test lemma_axis_roundtrip_test lemma_axis_rebuild_test lemma_tok_test
 
 LDLIBS-liblemma := -lcorm
-liblemma-obj-y := src/token.o
+liblemma-obj-y := src/token.o src/tok.o
 LDLIBS-lemma_test := -llemma -lcorm
 LDLIBS-lemma_prop_test := -llemma -lcorm
 LDLIBS-lemma_axis_store_test := -llemma -lcorm
 LDLIBS-lemma_axis_roundtrip_test := -llemma -lcorm
 LDLIBS-lemma_axis_rebuild_test := -llemma -lcorm -lqsys
+LDLIBS-lemma_tok_test := -llemma -lcorm
 
-CFLAGS += -I/home/quirinpa/site/external/libcorm/include
+add-prefix := ../libcorm
 
 include ../mk/include.mk
 
 test: all
-	LD_LIBRARY_PATH=$(abspath lib) ./bin/lemma_test
-	LD_LIBRARY_PATH=$(abspath lib) ./bin/lemma_prop_test
-	LD_LIBRARY_PATH=$(abspath lib) ./bin/lemma_axis_store_test
-	LD_LIBRARY_PATH=$(abspath lib) ./bin/lemma_axis_roundtrip_test
+	./bin/lemma_test
+	./bin/lemma_prop_test
+	./bin/lemma_axis_store_test
+	./bin/lemma_axis_roundtrip_test
+	./bin/lemma_tok_test
 	rm -rf /tmp/lemma-rebuild-test-*
-	LD_LIBRARY_PATH=$(abspath lib) ./bin/lemma_axis_rebuild_test
+	./bin/lemma_axis_rebuild_test
 	rm -rf /tmp/lemma-rebuild-test-*
