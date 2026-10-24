@@ -6,8 +6,14 @@
 #include <libgen.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <ctype.h>
 #include <ttypt/corm.h>
 #include "ttypt/lemma.h"
+
+static inline int is_word_char(unsigned char c)
+{
+	return isalnum(c) || c >= 0x80;
+}
 
 #define LEMMA_MAX_TOKENS 64
 
@@ -18,11 +24,21 @@ void lemma_tokenize(
 
 struct lemma_db {
 	unsigned hd;          /* CM_SORTED, CM_STR → CM_STR inverted index: "term_id\trow_id" → "" */
-	unsigned doc_hd;      /* CM_SORTED, CM_STR → CM_STR folded text per (field,row) */
+	unsigned doc_tok_hd;  /* CM_SORTED, CM_STR → doc_tok_type: token stream per (field,row) */
 	unsigned term_hd;     /* CM_SORTED, CM_STR → CM_U32: "field\ttoken" → term_id */
 	unsigned term_rev_hd; /* CM_U32 → CM_STR: term_id → "field\ttoken" */
 	uint32_t next_term_id;/* Monotonic term ID generator starting at 1 */
 };
+
+static size_t doc_tok_measure(const void *data)
+{
+	if (!data)
+		return 0;
+	const uint16_t *count = (const uint16_t *)data;
+	return sizeof(uint16_t) + (size_t)(*count) * sizeof(uint16_t);
+}
+
+static uint32_t g_doc_tok_type = 0;
 
 /* D14 axis-contributed CLI option state (rec_axis_config_arg, round 2).
  * decode merges it into the bare/empty spec path (searchable when --query
@@ -38,6 +54,10 @@ lemma_db_t *lemma_open(unsigned mask)
 {
 	lemma_db_t *db;
 
+	if (!g_doc_tok_type) {
+		g_doc_tok_type = corm_mreg(doc_tok_measure);
+	}
+
 	db = calloc(1, sizeof(*db));
 	if (!db)
 		return NULL;
@@ -46,8 +66,8 @@ lemma_db_t *lemma_open(unsigned mask)
 		free(db);
 		return NULL;
 	}
-	db->doc_hd = corm_open(NULL, NULL, CM_STR, CM_STR, mask, CM_SORTED);
-	if (!db->doc_hd) {
+	db->doc_tok_hd = corm_open(NULL, NULL, CM_STR, g_doc_tok_type, mask, CM_SORTED);
+	if (!db->doc_tok_hd) {
 		corm_close(db->hd);
 		free(db);
 		return NULL;
@@ -55,14 +75,14 @@ lemma_db_t *lemma_open(unsigned mask)
 	db->term_hd = corm_open(NULL, NULL, CM_STR, CM_U32, mask, CM_SORTED);
 	if (!db->term_hd) {
 		corm_close(db->hd);
-		corm_close(db->doc_hd);
+		corm_close(db->doc_tok_hd);
 		free(db);
 		return NULL;
 	}
 	db->term_rev_hd = corm_open(NULL, NULL, CM_U32, CM_STR, mask, 0);
 	if (!db->term_rev_hd) {
 		corm_close(db->hd);
-		corm_close(db->doc_hd);
+		corm_close(db->doc_tok_hd);
 		corm_close(db->term_hd);
 		free(db);
 		return NULL;
@@ -76,7 +96,7 @@ void lemma_close(lemma_db_t *db)
 	if (!db)
 		return;
 	corm_close(db->hd);
-	corm_close(db->doc_hd);
+	corm_close(db->doc_tok_hd);
 	corm_close(db->term_hd);
 	corm_close(db->term_rev_hd);
 	free(db);
@@ -87,7 +107,7 @@ void lemma_clear(lemma_db_t *db)
 	if (!db)
 		return;
 	corm_drop(db->hd);
-	corm_drop(db->doc_hd);
+	corm_drop(db->doc_tok_hd);
 	corm_drop(db->term_hd);
 	corm_drop(db->term_rev_hd);
 	db->next_term_id = 1;
@@ -161,6 +181,31 @@ static void index_token(const char *tok, size_t len, void *user)
 	free(key);
 }
 
+static void store_doc_tokens(lemma_db_t *db, const char *field, const char *row_id,
+                             const uint16_t *tokens, size_t n_tokens)
+{
+	size_t fld = strlen(field);
+	size_t rid = strlen(row_id);
+	size_t dlen = fld + 1 + rid;
+	char *dkey = malloc(dlen + 1);
+	if (!dkey)
+		return;
+	memcpy(dkey, field, fld);
+	dkey[fld] = '\t';
+	memcpy(dkey + fld + 1, row_id, rid);
+	dkey[dlen] = '\0';
+
+	size_t payload_bytes = sizeof(uint16_t) + n_tokens * sizeof(uint16_t);
+	uint16_t *payload = malloc(payload_bytes);
+	if (payload) {
+		payload[0] = (uint16_t)n_tokens;
+		memcpy(payload + 1, tokens, n_tokens * sizeof(uint16_t));
+		corm_put(db->doc_tok_hd, dkey, payload);
+		free(payload);
+	}
+	free(dkey);
+}
+
 int lemma_index(
         lemma_db_t *db, const char *field, const char *row_id,
         const char *value)
@@ -185,29 +230,71 @@ int lemma_index(
 	ctx.row_id = row_id;
 	lemma_tokenize(folded, index_token, &ctx);
 
-	/* Side table: store the folded text per (field,row_id) so phrase
-	 * queries can re-tokenize a document and test token adjacency. */
-	{
-		size_t fld = strlen(field);
-		size_t rid = strlen(row_id);
-		size_t dlen = fld + 1 + rid;
-		char *dkey = malloc(dlen + 1);
-		size_t fl = strlen(folded);
-		char *fdoc = malloc(fl + 1);
-
-		if (dkey && fdoc) {
-			memcpy(dkey, field, fld);
-			dkey[fld] = '\t';
-			memcpy(dkey + fld + 1, row_id, rid);
-			dkey[dlen] = '\0';
-			memcpy(fdoc, folded, fl + 1);
-			corm_put(db->doc_hd, dkey, fdoc);
-		}
-		free(dkey);
-		free(fdoc);
+	/* Store tokenized stream in doc_tok_hd (doc_hd eliminated) */
+	uint16_t toks_buf[2048];
+	size_t n_toks = 0;
+	if (lemma_tok_encode(NULL, value, strlen(value), toks_buf, 2048, &n_toks) == 0) {
+		store_doc_tokens(db, field, row_id, toks_buf, n_toks);
 	}
 
 	free(folded);
+	return 0;
+}
+
+int lemma_index_tokens(lemma_db_t *db, const char *field, const char *row_id,
+                       const uint16_t *tokens, size_t n_tokens)
+{
+	if (!db || !field || !row_id || !tokens)
+		return -1;
+
+	const lemma_tok_vocab_t *vocab = lemma_tok_vocab_default();
+	if (!vocab)
+		return -1;
+
+	/* Selective Lexical Indexing: index all words, skip delimiters */
+	size_t i = 0;
+	while (i < n_tokens) {
+		uint16_t tid = tokens[i];
+		char word_buf[128];
+		size_t wlen = 0;
+
+		if (vocab && lemma_tok_is_word(vocab, tid)) {
+			char dec[128];
+			size_t bw = 0;
+			if (lemma_tok_decode(vocab, &tid, 1, dec, sizeof(dec), &bw) == 0 && bw > 0) {
+				if (lemma_fold(word_buf, sizeof(word_buf), dec) >= 0)
+					wlen = strlen(word_buf);
+			}
+			i++;
+		} else if (tid < 256 && is_word_char((unsigned char)tid)) {
+			char byte_buf[128];
+			size_t blen = 0;
+			while (i < n_tokens && tokens[i] < 256 && is_word_char((unsigned char)tokens[i]) && blen < sizeof(byte_buf) - 1) {
+				byte_buf[blen++] = (char)tokens[i++];
+			}
+			byte_buf[blen] = '\0';
+			if (lemma_fold(word_buf, sizeof(word_buf), byte_buf) >= 0)
+				wlen = strlen(word_buf);
+		} else {
+			i++;
+			continue;
+		}
+
+		if (wlen > 0) {
+			uint32_t term_id = lemma_term_intern(db, field, word_buf, wlen);
+			if (term_id) {
+				size_t rid = strlen(row_id);
+				char *key = malloc(8 + 1 + rid + 1);
+				if (key) {
+					snprintf(key, 8 + 1 + rid + 1, "%08x\t%s", term_id, row_id);
+					corm_put(db->hd, key, "");
+					free(key);
+				}
+			}
+		}
+	}
+
+	store_doc_tokens(db, field, row_id, tokens, n_tokens);
 	return 0;
 }
 
@@ -223,49 +310,17 @@ int lemma_index_ref(
 
 /* ---- unindex (the differential inverse of index) ---- */
 
-typedef struct {
-	const char *tok;
-	size_t len;
-} unindex_tok_t;
-
-typedef struct {
-	unindex_tok_t *ent;
-	size_t n;
-	size_t cap;
-} unindex_toks_t;
-
-static void collect_unindex_token(const char *tok, size_t len, void *user)
-{
-	unindex_toks_t *t = (unindex_toks_t *)user;
-
-	if (t->n == t->cap) {
-		size_t ncap = t->cap ? t->cap * 2 : 64;
-		unindex_tok_t *nt = realloc(t->ent, ncap * sizeof(*nt));
-
-		if (!nt)
-			return;
-		t->ent = nt;
-		t->cap = ncap;
-	}
-	t->ent[t->n].tok = tok;
-	t->ent[t->n].len = len;
-	t->n++;
-}
-
 int lemma_unindex(lemma_db_t *db, const char *field, const char *row_id)
 {
 	size_t fld;
 	size_t rid;
 	size_t dlen;
 	char *dkey;
-	const char *dtext;
-	unindex_toks_t toks;
-	size_t i;
+	const void *raw;
 
 	if (!db || !field || !row_id)
 		return -1;
-	/* The posting keys only ever encode the doc's own tokens, so the
-	 * side-table text walks backwards to the exact keys index wrote. */
+
 	fld = strlen(field);
 	rid = strlen(row_id);
 	dlen = fld + 1 + rid;
@@ -276,30 +331,60 @@ int lemma_unindex(lemma_db_t *db, const char *field, const char *row_id)
 	dkey[fld] = '\t';
 	memcpy(dkey + fld + 1, row_id, rid);
 	dkey[dlen] = '\0';
-	dtext = (const char *)corm_get(db->doc_hd, dkey);
-	if (!dtext) {
+	raw = corm_get(db->doc_tok_hd, dkey);
+	if (!raw) {
 		free(dkey);
 		return 0; /* absent (field,row): idempotent no-op */
 	}
-	memset(&toks, 0, sizeof(toks));
-	lemma_tokenize(dtext, collect_unindex_token, &toks);
-	/* Duplicate tokens collapsed at index time (same key replaces),
-	 * so deleting each occurrence's key is exact; repeats are
-	 * harmless no-ops. */
-	for (i = 0; i < toks.n; i++) {
-		uint32_t tid = lemma_term_lookup(db, field, toks.ent[i].tok, toks.ent[i].len);
-		if (!tid)
+
+	const uint16_t *hdr = (const uint16_t *)raw;
+	uint16_t n_tokens = hdr[0];
+	const uint16_t *tokens = hdr + 1;
+	const lemma_tok_vocab_t *vocab = lemma_tok_vocab_default();
+
+	size_t t = 0;
+	while (t < n_tokens) {
+		uint16_t tid = tokens[t];
+		char word_buf[128];
+		size_t wlen = 0;
+
+		if (vocab && lemma_tok_is_word(vocab, tid)) {
+			char dec[128];
+			size_t bw = 0;
+			if (lemma_tok_decode(vocab, &tid, 1, dec, sizeof(dec), &bw) == 0 && bw > 0) {
+				if (lemma_fold(word_buf, sizeof(word_buf), dec) >= 0)
+					wlen = strlen(word_buf);
+			}
+			t++;
+		} else if (tid < 256 && is_word_char((unsigned char)tid)) {
+			char byte_buf[128];
+			size_t blen = 0;
+			while (t < n_tokens && tokens[t] < 256 && is_word_char((unsigned char)tokens[t]) && blen < sizeof(byte_buf) - 1) {
+				byte_buf[blen++] = (char)tokens[t++];
+			}
+			byte_buf[blen] = '\0';
+			if (lemma_fold(word_buf, sizeof(word_buf), byte_buf) >= 0)
+				wlen = strlen(word_buf);
+		} else {
+			t++;
 			continue;
-		size_t rid_len = strlen(row_id);
-		char *key = malloc(8 + 1 + rid_len + 1);
-		if (!key)
-			continue;
-		snprintf(key, 8 + 1 + rid_len + 1, "%08x\t%s", tid, row_id);
-		corm_del(db->hd, key);
-		free(key);
+		}
+
+		if (wlen > 0) {
+			uint32_t term_id = lemma_term_lookup(db, field, word_buf, wlen);
+			if (term_id) {
+				size_t rid_len = strlen(row_id);
+				char *key = malloc(8 + 1 + rid_len + 1);
+				if (key) {
+					snprintf(key, 8 + 1 + rid_len + 1, "%08x\t%s", term_id, row_id);
+					corm_del(db->hd, key);
+					free(key);
+				}
+			}
+		}
 	}
-	free(toks.ent);
-	corm_del(db->doc_hd, dkey);
+
+	corm_del(db->doc_tok_hd, dkey);
 	free(dkey);
 	return 0;
 }
@@ -314,12 +399,8 @@ int lemma_unindex_ref(lemma_db_t *db, const char *field, rec_ref_t row_id)
 
 /* ---- rec_axis store / unstore / readback (Phase 2A) ---- */
 
-int rec_axis_store(void *ctx, const char *spec, rec_ref_t ref,
-	const char *value)
+static int lemma_store_text(lemma_db_t *db, rec_ref_t ref, const char *value)
 {
-	lemma_db_t *db = ctx;
-
-	(void)spec; /* reserved — NULL */
 	if (!db || !value) {
 		errno = EINVAL;
 		return -1;
@@ -333,6 +414,245 @@ int rec_axis_store(void *ctx, const char *spec, rec_ref_t ref,
 	if (lemma_unindex_ref(db, LEMMA_AXIS_TEXT_FIELD, ref) != 0)
 		return -1;
 	return lemma_index_ref(db, LEMMA_AXIS_TEXT_FIELD, ref, value);
+}
+
+int rec_axis_store(void *ctx, const char *spec, rec_ref_t ref,
+	const char *value)
+{
+	(void)spec;
+	return lemma_store_text((lemma_db_t *)ctx, ref, value);
+}
+
+#define HTOK_MAGIC 0x48544F4B
+
+static inline uint32_t lemma_read_varint(const uint8_t **p_ptr, const uint8_t *end)
+{
+	uint32_t val = 0;
+	int shift = 0;
+	while (*p_ptr < end) {
+		uint8_t b = *(*p_ptr)++;
+		val |= (uint32_t)(b & 0x7f) << shift;
+		if (!(b & 0x80))
+			break;
+		shift += 7;
+	}
+	return val;
+}
+
+static int lemma_store_typed(void *ctx, const char *spec, rec_ref_t ref,
+                               const void *blob, size_t len, uint32_t qtype)
+{
+	lemma_db_t *db = ctx;
+	char rid[32];
+
+	(void)spec;
+	if (!db || !blob || len == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (qtype == CM_STR) {
+		return rec_axis_store(ctx, spec, ref, (const char *)blob);
+	}
+
+	snprintf(rid, sizeof(rid), "%u", (unsigned)ref);
+
+	/* Check for HTOK container format */
+	if (len >= 8 && *(const uint32_t *)blob == HTOK_MAGIC) {
+		uint16_t version = *(const uint16_t *)((const uint8_t *)blob + 4);
+		const uint8_t *p = (const uint8_t *)blob + 6;
+		const uint8_t *end = (const uint8_t *)blob + len;
+		uint16_t field_count = 0;
+
+		/* Clear previous index entries for this ref under text field */
+		lemma_unindex_ref(db, LEMMA_AXIS_TEXT_FIELD, ref);
+
+		if (version >= 4) {
+			if (len < 12) return -1;
+			uint8_t flags = *((const uint8_t *)blob + 11);
+			p = (const uint8_t *)blob + 12;
+
+			if (flags & 0x01) { /* supersedes */
+				lemma_read_varint(&p, end);
+			}
+			if (flags & 0x02) { /* supersededBy */
+				lemma_read_varint(&p, end);
+			}
+			if (flags & 0x04) { /* evidence delta array */
+				uint32_t evid_count = lemma_read_varint(&p, end);
+				for (uint32_t i = 0; i < evid_count && p < end; i++) {
+					lemma_read_varint(&p, end);
+				}
+			}
+
+			uint32_t fc = lemma_read_varint(&p, end);
+			for (uint32_t i = 0; i < fc && p < end; i++) {
+				if (p >= end) break;
+				uint8_t var_tag = *p++;
+				uint8_t field_id = (var_tag >> 3) & 0x1f;
+				uint8_t type_tag = var_tag & 0x07;
+				if (field_id == 31) {
+					if (p >= end) break;
+					uint8_t nlen = *p++;
+					if (p + nlen > end) break;
+					p += nlen;
+				}
+				uint32_t data_len = lemma_read_varint(&p, end);
+				if (p + data_len > end) break;
+
+				if (field_id == 0 && type_tag == 1) {
+					size_t max_tok = data_len + 16;
+					uint16_t *tokens = malloc(max_tok * sizeof(uint16_t));
+					if (tokens) {
+						size_t ntok = lemma_tok_unpack_varint(p, data_len, tokens, max_tok);
+						size_t cap = ntok * 16 + 256;
+						char *dec = malloc(cap);
+						size_t bw = 0;
+						if (dec && lemma_tok_decode(NULL, tokens, ntok, dec, cap, &bw) == 0 && bw > 0) {
+							lemma_index(db, LEMMA_AXIS_TEXT_FIELD, rid, dec);
+							store_doc_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, tokens, ntok);
+						} else {
+							lemma_index_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, tokens, ntok);
+						}
+						free(dec);
+						free(tokens);
+					}
+				}
+				p += data_len;
+			}
+			return 0;
+		} else if (version >= 3) {
+			if (len < 16) return -1;
+			uint8_t flags = *((const uint8_t *)blob + 13);
+			size_t hdr_size = 14;
+			if (flags & 0x01) hdr_size += 4; /* supersedes */
+			if (flags & 0x02) hdr_size += 4; /* supersededBy */
+			if (flags & 0x04) {
+				if (hdr_size + 2 > len) return -1;
+				uint16_t evid_count = *(const uint16_t *)((const uint8_t *)blob + hdr_size);
+				hdr_size += 2 + (size_t)evid_count * 4;
+			}
+			if (hdr_size + 2 > len) return -1;
+			memcpy(&field_count, (const uint8_t *)blob + hdr_size, 2);
+			p = (const uint8_t *)blob + hdr_size + 2;
+
+			for (uint16_t i = 0; i < field_count && p < end; i++) {
+				if (p + 1 > end) break;
+				uint8_t nlen = *p++;
+				if (p + nlen + 3 > end) break;
+				char fname[64];
+				size_t copylen = nlen < sizeof(fname) - 1 ? nlen : sizeof(fname) - 1;
+				memcpy(fname, p, copylen);
+				fname[copylen] = '\0';
+				p += nlen;
+
+				uint8_t type_tag = *p++;
+				uint16_t data_len = 0;
+				memcpy(&data_len, p, 2); p += 2;
+				if (p + data_len > end) break;
+
+				if (type_tag == 1 && (strcmp(fname, "text") == 0 || strcmp(fname, LEMMA_AXIS_TEXT_FIELD) == 0)) {
+					size_t max_tok = data_len + 16;
+					uint16_t *tokens = malloc(max_tok * sizeof(uint16_t));
+					if (tokens) {
+						size_t ntok = lemma_tok_unpack_varint(p, data_len, tokens, max_tok);
+						size_t cap = ntok * 16 + 256;
+						char *dec = malloc(cap);
+						size_t bw = 0;
+						if (dec && lemma_tok_decode(NULL, tokens, ntok, dec, cap, &bw) == 0 && bw > 0) {
+							lemma_index(db, LEMMA_AXIS_TEXT_FIELD, rid, dec);
+							store_doc_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, tokens, ntok);
+						} else {
+							lemma_index_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, tokens, ntok);
+						}
+						free(dec);
+						free(tokens);
+					}
+				}
+				p += data_len;
+			}
+			return 0;
+		} else if (version >= 2) {
+			if (len < 26) return -1;
+			uint16_t evid_count = *(const uint16_t *)((const uint8_t *)blob + 22);
+			size_t hdr_size = 24 + (size_t)evid_count * 4;
+			if (hdr_size + 2 > len) return -1;
+			p = (const uint8_t *)blob + hdr_size;
+			memcpy(&field_count, p, 2); p += 2;
+		} else {
+			memcpy(&field_count, p, 2); p += 2;
+		}
+
+		for (uint16_t i = 0; i < field_count && p < end; i++) {
+			if (p + 1 > end) break;
+			uint8_t nlen = *p++;
+			if (p + nlen + 2 > end) break;
+			char fname[64];
+			size_t copylen = nlen < sizeof(fname) - 1 ? nlen : sizeof(fname) - 1;
+			memcpy(fname, p, copylen);
+			fname[copylen] = '\0';
+			p += nlen;
+
+			uint16_t ntok = 0;
+			memcpy(&ntok, p, 2); p += 2;
+			if (p + (size_t)ntok * 2 > end) break;
+
+			const uint16_t *tokens = (const uint16_t *)p;
+			p += (size_t)ntok * 2;
+
+			/* Index text field */
+			if (strcmp(fname, "text") == 0 || strcmp(fname, LEMMA_AXIS_TEXT_FIELD) == 0) {
+				size_t cap = (size_t)ntok * 16 + 256;
+				char *dec = malloc(cap);
+				size_t bw = 0;
+				if (dec && lemma_tok_decode(NULL, tokens, ntok, dec, cap, &bw) == 0 && bw > 0) {
+					lemma_index(db, LEMMA_AXIS_TEXT_FIELD, rid, dec);
+					store_doc_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, tokens, ntok);
+				} else {
+					lemma_index_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, tokens, ntok);
+				}
+				free(dec);
+			}
+		}
+		return 0;
+	}
+
+	/* Raw token stream: uint16_t count, uint16_t tokens[] */
+	if (len >= 2) {
+		const uint16_t *u16 = (const uint16_t *)blob;
+		size_t n_tokens = u16[0];
+		if (sizeof(uint16_t) + n_tokens * sizeof(uint16_t) <= len) {
+			lemma_unindex_ref(db, LEMMA_AXIS_TEXT_FIELD, ref);
+			size_t cap = n_tokens * 16 + 256;
+			char *dec = malloc(cap);
+			size_t bw = 0;
+			if (dec && lemma_tok_decode(NULL, u16 + 1, n_tokens, dec, cap, &bw) == 0 && bw > 0) {
+				lemma_index(db, LEMMA_AXIS_TEXT_FIELD, rid, dec);
+				store_doc_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, u16 + 1, n_tokens);
+				free(dec);
+				return 0;
+			}
+			free(dec);
+			return lemma_index_tokens(db, LEMMA_AXIS_TEXT_FIELD, rid, u16 + 1, n_tokens);
+		}
+	}
+
+	/* Fallback: text payload stored in blob handle */
+	char *tmp = malloc(len + 1);
+	if (tmp) {
+		memcpy(tmp, blob, len);
+		tmp[len] = '\0';
+		int rc = lemma_store_text(db, ref, tmp);
+		free(tmp);
+		return rc;
+	}
+
+	return -1;
+}
+
+int rec_axis_store_typed(void *ctx, const char *spec, rec_ref_t ref,
+                         const void *blob, size_t len, uint32_t qtype)
+{
+	return lemma_store_typed(ctx, spec, ref, blob, len, qtype);
 }
 
 int rec_axis_unstore(void *ctx, rec_ref_t ref)
@@ -355,8 +675,7 @@ int rec_axis_readback(void *ctx, rec_ref_t ref, char **blob_out,
 	size_t fld;
 	size_t rlen;
 	char *dkey;
-	const char *dtext;
-	char *copy;
+	const void *raw;
 
 	if (blob_out)
 		*blob_out = NULL;
@@ -366,8 +685,7 @@ int rec_axis_readback(void *ctx, rec_ref_t ref, char **blob_out,
 		errno = EINVAL;
 		return -1;
 	}
-	/* One entry: the stored (folded) doc text. The store keeps no
-	 * other copy, so read-back is exactly what queries see. */
+
 	snprintf(rid, sizeof(rid), "%llu", (unsigned long long)ref);
 	fld = strlen(LEMMA_AXIS_TEXT_FIELD);
 	rlen = strlen(rid);
@@ -378,15 +696,36 @@ int rec_axis_readback(void *ctx, rec_ref_t ref, char **blob_out,
 	dkey[fld] = '\t';
 	memcpy(dkey + fld + 1, rid, rlen);
 	dkey[fld + 1 + rlen] = '\0';
-	dtext = (const char *)corm_get(db->doc_hd, dkey);
+	raw = corm_get(db->doc_tok_hd, dkey);
 	free(dkey);
-	if (!dtext)
+	if (!raw)
 		return 0; /* absent → NULL/0, still 0 */
-	copy = strdup(dtext);
-	if (!copy)
+
+	const uint16_t *hdr = (const uint16_t *)raw;
+	uint16_t n_tokens = hdr[0];
+	const uint16_t *tokens = hdr + 1;
+
+	size_t cap = (size_t)n_tokens * 16 + 256;
+	char *buf = malloc(cap);
+	if (!buf)
 		return -1;
-	*blob_out = copy;
-	*n_out = strlen(copy);
+
+	size_t bw = 0;
+	if (lemma_tok_decode(NULL, tokens, n_tokens, buf, cap, &bw) != 0) {
+		free(buf);
+		return -1;
+	}
+
+	char *folded = malloc(bw + 1);
+	if (!folded) {
+		free(buf);
+		return -1;
+	}
+	lemma_fold(folded, bw + 1, buf);
+	free(buf);
+
+	*blob_out = folded;
+	*n_out = strlen(folded);
 	return 0;
 }
 
@@ -410,60 +749,6 @@ static void collect_token(const char *tok, size_t len, void *user)
 }
 
 /* ---- phrase verification ---- */
-
-typedef struct {
-	const char *tok;
-	size_t len;
-} dtok_t;
-
-typedef struct {
-	dtok_t *ent;
-	size_t n;
-	size_t cap;
-} dctoks_t;
-
-static void collect_doc_token(const char *tok, size_t len, void *user)
-{
-	dctoks_t *t = (dctoks_t *)user;
-
-	if (t->n == t->cap) {
-		size_t ncap = t->cap ? t->cap * 2 : 64;
-		dtok_t *nt = realloc(t->ent, ncap * sizeof(*nt));
-
-		if (!nt)
-			return;
-		t->ent = nt;
-		t->cap = ncap;
-	}
-	t->ent[t->n].tok = tok;
-	t->ent[t->n].len = len;
-	t->n++;
-}
-
-/* Contiguous-subsequence test: the query tokens must appear in order with
- * per-token prefix matching. A single query token is trivially present. */
-static int doc_matches_phrase(const dctoks_t *d, const collect_ctx_t *q)
-{
-	size_t i;
-	size_t j;
-
-	if (q->n > d->n)
-		return 0;
-	if (q->n == 1)
-		return 1;
-	for (i = 0; i + q->n <= d->n; i++) {
-		for (j = 0; j < q->n; j++) {
-			if (d->ent[i + j].len < q->len[j])
-				break;
-			if (memcmp(d->ent[i + j].tok, q->toks[j], q->len[j]) !=
-			    0)
-				break;
-		}
-		if (j == q->n)
-			return 1;
-	}
-	return 0;
-}
 
 /* ---- recall-kernel adapter ---- */
 
@@ -501,9 +786,83 @@ static void lemma_dest_emit(lemma_dest_t *d, const char *row_id)
 	}
 }
 
+static int doc_tok_matches_phrase(const uint16_t *tokens, size_t n_tokens, const collect_ctx_t *q)
+{
+	if (!tokens || n_tokens == 0 || !q || q->n == 0)
+		return 0;
+
+	const lemma_tok_vocab_t *vocab = lemma_tok_vocab_default();
+	if (!vocab)
+		return 0;
+
+	char word_bufs[256][64];
+	size_t word_lens[256];
+	size_t n_words = 0;
+
+	size_t t = 0;
+	while (t < n_tokens && n_words < 256) {
+		uint16_t tid = tokens[t];
+
+		if (lemma_tok_is_word(vocab, tid)) {
+			char dec[128];
+			size_t bw = 0;
+			if (lemma_tok_decode(vocab, &tid, 1, dec, sizeof(dec), &bw) == 0 && bw > 0) {
+				char folded[128];
+				if (lemma_fold(folded, sizeof(folded), dec) >= 0) {
+					size_t flen = strlen(folded);
+					if (flen >= sizeof(word_bufs[0]))
+						flen = sizeof(word_bufs[0]) - 1;
+					memcpy(word_bufs[n_words], folded, flen);
+					word_bufs[n_words][flen] = '\0';
+					word_lens[n_words] = flen;
+					n_words++;
+				}
+			}
+			t++;
+		} else if (tid < 256 && is_word_char((unsigned char)tid)) {
+			char byte_buf[128];
+			size_t blen = 0;
+			while (t < n_tokens && tokens[t] < 256 && is_word_char((unsigned char)tokens[t]) && blen < sizeof(byte_buf) - 1) {
+				byte_buf[blen++] = (char)tokens[t++];
+			}
+			byte_buf[blen] = '\0';
+			char folded[128];
+			if (lemma_fold(folded, sizeof(folded), byte_buf) >= 0) {
+				size_t flen = strlen(folded);
+				if (flen >= sizeof(word_bufs[0]))
+					flen = sizeof(word_bufs[0]) - 1;
+				memcpy(word_bufs[n_words], folded, flen);
+				word_bufs[n_words][flen] = '\0';
+				word_lens[n_words] = flen;
+				n_words++;
+			}
+		} else {
+			t++;
+		}
+	}
+
+	if (q->n > n_words)
+		return 0;
+	if (q->n == 1)
+		return 1;
+
+	for (size_t i = 0; i + q->n <= n_words; i++) {
+		size_t j;
+		for (j = 0; j < q->n; j++) {
+			if (word_lens[i + j] < q->len[j])
+				break;
+			if (memcmp(word_bufs[i + j], q->toks[j], q->len[j]) != 0)
+				break;
+		}
+		if (j == q->n)
+			return 1;
+	}
+	return 0;
+}
+
 static uint32_t lemma_query_any(
         lemma_db_t *db, const char *field, const char *query, lemma_dest_t *out,
-        int *handled, int phrase)
+        int *handled, int phrase, int max_edit_distance)
 {
 	collect_ctx_t toks;
 	char fold_stack[256];
@@ -579,35 +938,71 @@ static uint32_t lemma_query_any(
 		if (!nxt_hd)
 			break;
 
-		/* Prefix scan over terms in term_hd: term_hd is CM_SORTED,
-		 * CM_RANGE iterates from prefix to end; break when prefix
-		 * no longer matches. */
-		cur = corm_iter(db->term_hd, prefix, CM_RANGE);
-		while (corm_next(&k, &v, cur)) {
-			const char *tkey = (const char *)k;
-			uint32_t tid;
-			char post_prefix[10];
-			uint32_t pcur;
-			const void *pk;
-			const void *pv;
+		if (max_edit_distance == 0) {
+			/* Prefix scan over terms in term_hd: term_hd is CM_SORTED,
+			 * CM_RANGE iterates from prefix to end; break when prefix
+			 * no longer matches. */
+			cur = corm_iter(db->term_hd, prefix, CM_RANGE);
+			while (corm_next(&k, &v, cur)) {
+				const char *tkey = (const char *)k;
+				uint32_t tid;
+				char post_prefix[10];
+				uint32_t pcur;
+				const void *pk;
+				const void *pv;
 
-			if (strncmp(tkey, prefix, plen) != 0)
-				break;
-			tid = *(const uint32_t *)v;
-			snprintf(post_prefix, sizeof(post_prefix), "%08x\t", tid);
-
-			pcur = corm_iter(db->hd, post_prefix, CM_RANGE);
-			while (corm_next(&pk, &pv, pcur)) {
-				const char *pkey = (const char *)pk;
-				if (strncmp(pkey, post_prefix, 9) != 0)
+				if (strncmp(tkey, prefix, plen) != 0)
 					break;
-				const char *rid = pkey + 9;
-				if (!cur_hd || corm_get(cur_hd, rid))
-					corm_put(nxt_hd, rid, "");
+				tid = *(const uint32_t *)v;
+				snprintf(post_prefix, sizeof(post_prefix), "%08x\t", tid);
+
+				pcur = corm_iter(db->hd, post_prefix, CM_RANGE);
+				while (corm_next(&pk, &pv, pcur)) {
+					const char *pkey = (const char *)pk;
+					if (strncmp(pkey, post_prefix, 9) != 0)
+						break;
+					const char *rid = pkey + 9;
+					if (!cur_hd || corm_get(cur_hd, rid))
+						corm_put(nxt_hd, rid, "");
+				}
+				corm_fin(pcur);
 			}
-			corm_fin(pcur);
+			corm_fin(cur);
+		} else {
+			/* Fuzzy scan over all terms for this field */
+			char field_pfx[256];
+			snprintf(field_pfx, sizeof(field_pfx), "%s\t", field);
+			size_t fp_len = strlen(field_pfx);
+			cur = corm_iter(db->term_hd, field_pfx, CM_RANGE);
+			while (corm_next(&k, &v, cur)) {
+				const char *tkey = (const char *)k;
+				if (strncmp(tkey, field_pfx, fp_len) != 0)
+					break;
+				const char *tword = tkey + fp_len;
+				size_t twlen = strlen(tword);
+				int dist = lemma_levenshtein(toks.toks[i], toks.len[i], tword, twlen);
+				if (dist <= max_edit_distance || (twlen >= toks.len[i] && strncmp(tword, toks.toks[i], toks.len[i]) == 0)) {
+					uint32_t tid = *(const uint32_t *)v;
+					char post_prefix[10];
+					uint32_t pcur;
+					const void *pk;
+					const void *pv;
+
+					snprintf(post_prefix, sizeof(post_prefix), "%08x\t", tid);
+					pcur = corm_iter(db->hd, post_prefix, CM_RANGE);
+					while (corm_next(&pk, &pv, pcur)) {
+						const char *pkey = (const char *)pk;
+						if (strncmp(pkey, post_prefix, 9) != 0)
+							break;
+						const char *rid = pkey + 9;
+						if (!cur_hd || corm_get(cur_hd, rid))
+							corm_put(nxt_hd, rid, "");
+					}
+					corm_fin(pcur);
+				}
+			}
+			corm_fin(cur);
 		}
-		corm_fin(cur);
 
 		if (cur_hd)
 			corm_close(cur_hd);
@@ -626,8 +1021,6 @@ static uint32_t lemma_query_any(
 			if (phrase && toks.n > 1) {
 				size_t rl = strlen(rid);
 				size_t dfl = fld + 1 + rl;
-				const char *dtext;
-				dctoks_t d;
 
 				if (dfl + 1 > dcap) {
 					char *nt = realloc(dkey, dfl + 1);
@@ -640,16 +1033,14 @@ static uint32_t lemma_query_any(
 				dkey[fld] = '\t';
 				memcpy(dkey + fld + 1, rid, rl);
 				dkey[dfl] = '\0';
-				dtext = (const char *)corm_get(db->doc_hd, dkey);
-				memset(&d, 0, sizeof(d));
-				if (dtext) {
-					lemma_tokenize(
-					        dtext, collect_doc_token, &d);
-					keep = doc_matches_phrase(&d, &toks);
+
+				const void *raw = corm_get(db->doc_tok_hd, dkey);
+				if (raw) {
+					const uint16_t *hdr = (const uint16_t *)raw;
+					keep = doc_tok_matches_phrase(hdr + 1, (size_t)hdr[0], &toks);
 				} else {
 					keep = 0;
 				}
-				free(d.ent);
 			}
 			if (keep) {
 				lemma_dest_emit(out, rid);
@@ -674,7 +1065,7 @@ uint32_t lemma_query(
 {
 	lemma_dest_t d = { out_hd, NULL, 0 };
 
-	return lemma_query_any(db, field, query, &d, handled, 0);
+	return lemma_query_any(db, field, query, &d, handled, 0, 0);
 }
 
 uint32_t lemma_query_phrase(
@@ -683,7 +1074,16 @@ uint32_t lemma_query_phrase(
 {
 	lemma_dest_t d = { out_hd, NULL, 0 };
 
-	return lemma_query_any(db, field, query, &d, handled, 1);
+	return lemma_query_any(db, field, query, &d, handled, 1, 0);
+}
+
+uint32_t lemma_query_fuzzy(
+        lemma_db_t *db, const char *field, const char *query, int max_edit_distance,
+        uint32_t out_hd, int *handled)
+{
+	lemma_dest_t d = { out_hd, NULL, 0 };
+
+	return lemma_query_any(db, field, query, &d, handled, 0, max_edit_distance);
 }
 
 /* ---- recall-kernel fill + rank ---- */
@@ -698,7 +1098,7 @@ int rec_axis_fill_tokens(lemma_db_t *db, const char *field, const char *query,
 	d.hd = 0;
 	d.set = out;
 	d.err = 0;
-	lemma_query_any(db, field, query, &d, NULL, phrase ? 1 : 0);
+	lemma_query_any(db, field, query, &d, NULL, phrase ? 1 : 0, 0);
 	if (d.err)
 		return -1;
 	rec_set_seal(out);
@@ -711,8 +1111,7 @@ int lemma_rank(struct lemma_rank_ctx *ctx, rec_ref_t ref, float *score)
 	size_t fld;
 	size_t rlen;
 	char *dkey;
-	const char *dtext;
-	dctoks_t d;
+	const void *raw;
 
 	if (!ctx || !ctx->db || !ctx->field || !score)
 		return -1;
@@ -726,18 +1125,34 @@ int lemma_rank(struct lemma_rank_ctx *ctx, rec_ref_t ref, float *score)
 	dkey[fld] = '\t';
 	memcpy(dkey + fld + 1, rid, rlen);
 	dkey[fld + 1 + rlen] = '\0';
-	dtext = (const char *)corm_get(ctx->db->doc_hd, dkey);
+	raw = corm_get(ctx->db->doc_tok_hd, dkey);
 	free(dkey);
-	if (!dtext)
+	if (!raw)
 		return -1;
-	memset(&d, 0, sizeof(d));
-	lemma_tokenize(dtext, collect_doc_token, &d);
-	if (d.n == 0) {
-		free(d.ent);
-		return -1;
+
+	const uint16_t *hdr = (const uint16_t *)raw;
+	uint16_t n_tokens = hdr[0];
+	const uint16_t *tokens = hdr + 1;
+	const lemma_tok_vocab_t *vocab = lemma_tok_vocab_default();
+
+	size_t word_count = 0;
+	size_t t = 0;
+	while (t < n_tokens) {
+		uint16_t tid = tokens[t];
+		if (vocab && lemma_tok_is_word(vocab, tid)) {
+			word_count++;
+			t++;
+		} else if (tid < 256 && is_word_char((unsigned char)tid)) {
+			word_count++;
+			while (t < n_tokens && tokens[t] < 256 && is_word_char((unsigned char)tokens[t]))
+				t++;
+		} else {
+			t++;
+		}
 	}
-	*score = (float)ctx->matched / (float)d.n;
-	free(d.ent);
+	if (word_count == 0)
+		return -1;
+	*score = (float)ctx->matched / (float)word_count;
 	return 0;
 }
 
@@ -1026,7 +1441,11 @@ void *rec_axis_open(const char *spec)
 				"sidecar); text queries stay empty\n",
 				dir);
 		} else {
-			hd = corm_open(primary, "hd", CM_HNDL, CM_STR,
+			const char *vt = getenv("CORM_AXIS_VTYPE");
+			int is_blob = (vt && *vt == 'b');
+			uint32_t vtype = is_blob ? corm_blob_type() : CM_STR;
+
+			hd = corm_open(primary, "hd", CM_HNDL, vtype,
 					pmask, CM_AINDEX | CM_MIRROR);
 			if (!hd) {
 				fprintf(stderr,
@@ -1039,10 +1458,17 @@ void *rec_axis_open(const char *spec)
 					rec_ref_t ref = 0;
 					memcpy(&ref, key,
 							corm_type_len(CM_HNDL));
-					if (value)
-						lemma_index_ref(db,
-							LEMMA_AXIS_TEXT_FIELD,
-							ref, (const char *)value);
+					if (value) {
+						if (is_blob) {
+							uint32_t blen = *(const uint32_t *)value;
+							const void *bdata = (const char *)value + sizeof(uint32_t);
+							lemma_store_typed(db, NULL, ref, bdata, blen, vtype);
+						} else {
+							lemma_index_ref(db,
+								LEMMA_AXIS_TEXT_FIELD,
+								ref, (const char *)value);
+						}
+					}
 					docs++;
 				}
 				corm_fin(cur);

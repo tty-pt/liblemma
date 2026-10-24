@@ -1,4 +1,18 @@
-## 1.0.0
+## [1.1.0]
+
+- **Lossless Subword Tokenizer (`src/tok.c`, `<ttypt/lemma.h>`)**:
+  - Added subword tokenization engine (`lemma_tok_encode`, `lemma_tok_decode`, `lemma_tok_stream`) providing lossless tokenization and zero-copy string reconstruction.
+  - Bundled static BPE/unigram vocabulary base (`data/vocab.txt`, `src/vocab_base.h`).
+- **3-Gram Substring Indexing**:
+  - Character 3-gram trigram inverted indexing for fast subword and mid-word search.
+- **Redundant `doc_hd` Elimination**:
+  - Eliminated the separate document map (`doc_hd`) in favor of direct token array storage and interned terms, cutting memory consumption and cache misses.
+- **HTOK Lossless Token Ingestion (`rec_axis_store_typed`)**:
+  - Added support for lossless token array ingestion compatible with `libhyle-source` `.tok` containers.
+- **Linker Purity & Portable Build**:
+  - Removed hardcoded `/home/` and `-Wl,-rpath` linker paths.
+
+## [1.0.0]
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/tty-pt/liblemma/main/assets/logo.png" alt="liblemma logo" width="240" />
