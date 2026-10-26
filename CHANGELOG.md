@@ -1,4 +1,4 @@
-## [1.1.0]
+## [1.2.0]
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/tty-pt/liblemma/main/assets/logo.png" alt="liblemma logo" width="240" />

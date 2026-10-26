@@ -5,6 +5,6 @@ includedir=${prefix}/include
 
 Name: liblemma
 Description: Lexical tokenization and accent-sensitive inverted index FTS library
-Version: 1.1.0
+Version: 1.2.0
 Libs: -L${libdir} -llemma -lcorm
 Cflags: -I${includedir}
