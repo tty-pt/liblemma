@@ -9,48 +9,11 @@
 [![FTS tokenizer](https://img.shields.io/badge/FTS-tokenizer-16A34A)](#)
 [![Recall Kernel Lexical Axis](https://img.shields.io/badge/axis-lexical-blueviolet)](#)
 
-> Accent-sensitive search tokenizer, inverted full-text index (`pão ≠ pao`), and recall kernel lexical axis with zero external locale or iconv dependencies.
+> Accent-sensitive search tokenizer, inverted full-text index (`pão ≠ pao`), and recall kernel lexical axis with zero external locale or iconv dependencies. Canonical header is `<ttypt/lemma.h>`.
 
 ---
 
-## Why liblemma? (Full-Text Search That Respects Human Languages)
-
-Most search tokenizers collapse or strip accents during ASCII folding:
-> *"In Portuguese, 'pão' means bread, while 'pao' means stick/wood. In Spanish, 'año' means year, while 'ano' means anus."*
-
-Standard ASCII transliteration collapses these distinct words, creating false search hits, broken relevance rankings, and embarrassing user results.
-
-`liblemma` solves this in pure C:
-- **Diacritics Strictly Preserved**: Lowercases text and normalizes whitespace while strictly preserving accent marks (`pão ≠ pao`).
-- **Contiguous Phrase Search**: Finds exact phrases (`"Pão de Açúcar"`) or prefix stems (`cora*` matches `Coração`) in memory-mapped inverted indexes.
-- **Zero Locale Dependencies**: Implemented in self-contained C without linking `iconv` or requiring system locale generation (`/etc/locale.gen`).
-
----
-
-## Search & Recall Integration
-
-`liblemma` provides fast lexical tokenization and inverted index search:
-- **Data Engine FTS**: Powers accent-preserving full-text search across string fields in [libhyle](https://github.com/tty-pt/hyle).
-- **Recall Kernel (Text Axis)**: Matches stream directly into candidate sets via `rec_axis_fill_tokens` registered with [libcorm](https://github.com/tty-pt/libcorm) (`<ttypt/cormr.h>`).
-
----
-
-## Diacritic Preservation: Why Accents Matter
-
-Standard ASCII folding collapses accented vowels (`pão` $\rightarrow$ `pao`), causing severe semantic collisions in romance and Germanic languages. `liblemma` lowercases ASCII and Latin-1 characters while strictly preserving diacritic identity:
-
-| Input Text | Standard ASCII Folding | `lemma_fold` Output | Semantic Correctness |
-| :--- | :--- | :--- | :--- |
-| `Pão` (Bread) | `pao` | `pão` | Distinct from `pau` or `pao` |
-| `Coração` (Heart) | `coracao` | `coração` | Accents preserved |
-| `München` (Munich) | `munchen` | `münchen` | Umlaut preserved |
-| `Café` (Coffee) | `cafe` | `café` | Acute accent preserved |
-
-Zero external dependencies: `liblemma` requires no `iconv` dynamic libraries and no operating system locale files (`/etc/locale.gen`).
-
----
-
-## Quickstart
+## 1. Quickstart
 
 Index documents and query accent-sensitive prefixes in under 15 lines:
 
@@ -79,12 +42,14 @@ int main(void) {
 
 Compile and link:
 ```sh
-cc fts_demo.c $(pkg-config --cflags --libs lemma)
+cc fts_demo.c $(pkg-config --cflags --libs liblemma) -o fts_demo
 ```
 
 ---
 
-## Core API (The Essential 20%)
+## 2. Core API Reference
+
+The essential functions for tokenization and inverted index search:
 
 | Function | Signature | Description |
 | :--- | :--- | :--- |
@@ -101,18 +66,36 @@ cc fts_demo.c $(pkg-config --cflags --libs lemma)
 
 ---
 
-## Design Philosophy: Constraints as Superpowers
+## 3. Diacritic Preservation: Why Accents Matter
 
-* **Strict Accent Preservation**: Unlike standard POSIX collations that flatten diacritics (`pao == pão`), `lemma` strictly honors linguistic meaning while lowercasing characters, preventing incorrect lexical collisions.
-* **Zero External Dependencies**: Implemented entirely in portable C without linking `iconv` or depending on system locales (`/etc/locale.gen`).
-* **Fast Substring Inversion**: Indexes `(field, token) -> row_id` directly in memory using compact [libcorm](https://github.com/tty-pt/libcorm) backing tables.
+Standard ASCII folding collapses accented vowels (`pão` $\rightarrow$ `pao`), causing severe semantic collisions:
+> In Portuguese, **pão** means *bread*, while **pao** means *stick/wood*. In Spanish, **año** means *year*, while **ano** means *anus*.
+
+`liblemma` lowercases ASCII and Latin-1 characters while strictly preserving diacritic identity:
+
+| Input Text | Standard ASCII Folding | `lemma_fold` Output | Semantic Correctness |
+| :--- | :--- | :--- | :--- |
+| `Pão` (Bread) | `pao` | `pão` | Distinct from `pau` or `pao` |
+| `Coração` (Heart) | `coracao` | `coração` | Accents preserved |
+| `München` (Munich) | `munchen` | `münchen` | Umlaut preserved |
+| `Café` (Coffee) | `cafe` | `café` | Acute accent preserved |
+
+Zero external dependencies: `liblemma` requires no `iconv` dynamic libraries and no operating system locale files (`/etc/locale.gen`).
 
 ---
 
-## Installation & Build
+## 4. Search & Recall Integration
+
+`liblemma` integrates directly into the `tty.pt` stack:
+- **Data Engine FTS**: Powers accent-preserving full-text search across string fields in [libhyle](https://github.com/tty-pt/hyle).
+- **Recall Kernel (Text Axis)**: Matches stream directly into candidate sets via `rec_axis_fill_tokens` registered with [libcorm](https://github.com/tty-pt/libcorm) (`<ttypt/cormr.h>`).
+
+---
+
+## 5. Installation & Build
 
 ### Prebuilt Packages
-Prebuilt packages are distributed from tty.pt for Linux (APT / Alpine / Arch / Fedora-RHEL), macOS (Homebrew), Windows (winget / MSYS2), and OpenBSD. Follow the [installation instructions](https://github.com/tty-pt/ci/blob/main/docs/install.md) and use **liblemma** as the package name.
+Prebuilt packages for Linux (APT / Alpine / Arch / Fedora-RHEL), macOS (Homebrew), Windows (winget / MSYS2), and OpenBSD are distributed via [tty.pt packages](https://github.com/tty-pt/ci/blob/main/docs/install.md). Use **liblemma** as the package name.
 
 ### Build from Source
 ```sh
