@@ -1,9 +1,5 @@
 ## [1.2.0]
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/tty-pt/liblemma/main/assets/logo.png" alt="liblemma logo" width="240" />
-</p>
-
 - **Lossless Subword Tokenizer (`src/tok.c`, `<ttypt/lemma.h>`)**:
   - Added subword tokenization engine (`lemma_tok_encode`, `lemma_tok_decode`, `lemma_tok_stream`) providing lossless tokenization and zero-copy string reconstruction.
   - Bundled static BPE/unigram vocabulary base (`data/vocab.txt`, `src/vocab_base.h`).
@@ -17,10 +13,6 @@
   - Removed hardcoded `/home/` and `-Wl,-rpath` linker paths.
 
 ## [1.0.0]
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/tty-pt/liblemma/main/assets/logo.png" alt="liblemma logo" width="240" />
-</p>
 
 - **First stable release** — search tokenization and accent-sensitive inverted index for hyle's full-text search, backed by `libcorm`.
 - **Zero-Cost FTS & Term Interning**: interned term dictionary (`term_hd` mapping `field\ttoken` $\to$ `uint32_t term_id` with reverse map `term_rev_hd`) eliminating redundant token string duplication across documents and sessions.
