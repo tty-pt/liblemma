@@ -84,9 +84,19 @@ Zero external dependencies: `liblemma` requires no `iconv` dynamic libraries and
 
 ---
 
-## 4. Search & Recall Integration
+## 4. `corm` CLI Multi-Axis Integration
 
-`liblemma` integrates directly into the `tty.pt` stack:
+`liblemma` attaches directly to the `corm` CLI tool as the `@lemma` text axis:
+
+```bash
+# Ingest document and index with liblemma:
+corm -p "Traditional Portuguese bakery baking warm pão de queijo" docs.db@lemma:a:s
+
+# Query accent-sensitive text via corm CLI:
+corm -X "lemma" --lemma="pão" docs.db@lemma:a:s
+```
+
+`liblemma` also integrates into the wider stack:
 - **Data Engine FTS**: Powers accent-preserving full-text search across string fields in [libhyle](https://github.com/tty-pt/hyle).
 - **Recall Kernel (Text Axis)**: Matches stream directly into candidate sets via `rec_axis_fill_tokens` registered with [libcorm](https://github.com/tty-pt/libcorm) (`<ttypt/cormr.h>`).
 
