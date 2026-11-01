@@ -1,0 +1,42 @@
+{
+  "name": "@ttypt/lemma",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Universal Node.js and Browser bindings for liblemma Lexical Search & Unicode Accent Folding",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "include",
+    "assets",
+    "*.pc",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build:native": "mkdir -p build/Release && gcc -O3 -fPIC -shared -I/usr/include/node -I../include -I../../libcorm/include native/lemma_napi.c -L../lib -Wl,-rpath,../lib -L/usr/lib -llemma -lcorm -o build/Release/lemma_node.node 2>/dev/null || true",
+    "build:wasm": "clang --target=wasm32-wasi -mexec-model=reactor -Wl,--no-entry -Wl,--allow-undefined -Wl,--export=lemma_fold -Wl,--export=malloc -Wl,--export=free -I../include -O3 -o dist/lemma.wasm ../src/token.c 2>/dev/null || true",
+    "build": "npm run build:native && npm run build:wasm",
+    "test": "node --test tests/lemma.test.mjs"
+  },
+  "keywords": [
+    "lemma",
+    "liblemma",
+    "accent-folding",
+    "lexical",
+    "stemming",
+    "search",
+    "bm25"
+  ],
+  "author": "Paulo Quirino",
+  "license": "BSD-2-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tty-pt/liblemma.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/tty-pt/liblemma/tree/main/npm#readme",
+  "bugs": {
+    "url": "https://github.com/tty-pt/liblemma/issues"
+  }
+}
