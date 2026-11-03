@@ -26,7 +26,7 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <ttypt/corm.h>
-#include <ttypt/qsys.h>
+#include <ttypt/stele.h>
 #include "ttypt/lemma.h"
 
 static int failures = 0;
@@ -169,7 +169,7 @@ int main(void)
 		return 1;
 	}
 	/* Deterministic mask (D11): the rebuild re-opens with this shape. */
-	(void)qsys_setenv("CORM_MASK", "4095", 1);
+	(void)stl_setenv("CORM_MASK", "4095", 1);
 
 	ha = seed_primary(d1, "A.db", 1, "chirpy alpha harbour");
 	hb = seed_primary(d1, "B.db", 1, "gamma beacon fjord");
@@ -178,7 +178,7 @@ int main(void)
 
 	/* ── B-1: env primary wins with two rosters present ── */
 	snprintf(prim, sizeof(prim), "%s/A.db", d1);
-	(void)qsys_setenv("CORM_AXIS_PRIMARY", prim, 1);
+	(void)stl_setenv("CORM_AXIS_PRIMARY", prim, 1);
 	snprintf(logf, sizeof(logf), "%s/cap.log", d1);
 	snprintf(spec, sizeof(spec), "%s/A.db-lemma", d1);
 	cap_begin(logf);
@@ -195,7 +195,7 @@ int main(void)
 		lemma_close(dbctx);
 
 	/* ── B-2: two rosters, no env → loud warn, valid empty index ── */
-	(void)qsys_setenv("CORM_AXIS_PRIMARY", "", 1);
+	(void)stl_setenv("CORM_AXIS_PRIMARY", "", 1);
 	cap_begin(logf);
 	dbctx = rec_axis_open(spec);
 	log = cap_end();
@@ -226,7 +226,7 @@ int main(void)
 
 	/* ── env set but sidecar missing → warn + still fall back ── */
 	snprintf(prim, sizeof(prim), "%s/nope.db", d2);
-	(void)qsys_setenv("CORM_AXIS_PRIMARY", prim, 1);
+	(void)stl_setenv("CORM_AXIS_PRIMARY", prim, 1);
 	cap_begin(logf);
 	dbctx = rec_axis_open(spec);
 	log = cap_end();

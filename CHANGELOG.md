@@ -1,3 +1,10 @@
+## [1.2.1] - 2026-11-03
+
+- **Standalone `@tty-pt/lemma` Package & WebAssembly Tokenizer**:
+  - Published `@tty-pt/lemma` providing Node-API native bindings and pure WebAssembly fallback (`lemma.wasm`).
+  - Added `npm/wasm/lemma_wasm.c` exposing `lemma_wasm_tokenize` and `lemma_fold` using `ISO_EXPORT`.
+  - Migrated build to centralized `make wasm` in `external/mk/include.mk` with post-link `wasm-opt -O3` optimization (dropping binary size from 135 KB to 119 KB).
+
 ## [1.2.0]
 
 - **Lossless Subword Tokenizer (`src/tok.c`, `<ttypt/lemma.h>`)**:

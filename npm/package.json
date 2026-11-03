@@ -1,6 +1,6 @@
 {
-  "name": "@ttypt/lemma",
-  "version": "0.1.0",
+  "name": "@tty-pt/lemma",
+  "version": "1.2.1",
   "type": "module",
   "description": "Universal Node.js and Browser bindings for liblemma Lexical Search & Unicode Accent Folding",
   "main": "dist/index.js",
@@ -14,10 +14,18 @@
     "LICENSE"
   ],
   "scripts": {
-    "build:native": "mkdir -p build/Release && gcc -O3 -fPIC -shared -I/usr/include/node -I../include -I../../libcorm/include native/lemma_napi.c -L../lib -Wl,-rpath,../lib -L/usr/lib -llemma -lcorm -o build/Release/lemma_node.node 2>/dev/null || true",
-    "build:wasm": "clang --target=wasm32-wasi -mexec-model=reactor -Wl,--no-entry -Wl,--allow-undefined -Wl,--export=lemma_fold -Wl,--export=malloc -Wl,--export=free -I../include -O3 -o dist/lemma.wasm ../src/token.c 2>/dev/null || true",
+    "build:native": "mkdir -p build/Release && gcc -O3 -fPIC -shared -I/usr/include/node -I../include native/lemma_napi.c -L../lib -Wl,-rpath,../lib -L/usr/lib -llemma -lcorm -o build/Release/lemma_node.node 2>/dev/null || true",
+    "build:wasm": "make -C .. wasm",
     "build": "npm run build:native && npm run build:wasm",
     "test": "node --test tests/lemma.test.mjs"
+  },
+  "peerDependencies": {
+    "@tty-pt/corm": ">=2.2.0",
+    "@tty-pt/stele": ">=1.5.0"
+  },
+  "devDependencies": {
+    "@tty-pt/corm": "^2.2.3",
+    "@tty-pt/stele": "^1.5.1"
   },
   "keywords": [
     "lemma",

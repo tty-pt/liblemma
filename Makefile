@@ -7,10 +7,11 @@ LDLIBS-lemma_test := -llemma -lcorm
 LDLIBS-lemma_prop_test := -llemma -lcorm
 LDLIBS-lemma_axis_store_test := -llemma -lcorm
 LDLIBS-lemma_axis_roundtrip_test := -llemma -lcorm
-LDLIBS-lemma_axis_rebuild_test := -llemma -lcorm -lqsys
+LDLIBS-lemma_axis_rebuild_test := -llemma -lcorm -lstele
 LDLIBS-lemma_tok_test := -llemma -lcorm
 
-add-prefix := ../libcorm
+WASM_SRCS := src/token.c npm/wasm/lemma_wasm.c
+WASM_EXPORTS := lemma_fold lemma_list_contains lemma_list_append lemma_list_normalize
 
 include ../mk/include.mk
 

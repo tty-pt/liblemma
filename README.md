@@ -4,7 +4,7 @@
 
 # liblemma
 
-[![npm](https://img.shields.io/badge/npm-@ttypt/lemma-CB3837?logo=npm)](npm/README.md)
+[![npm](https://img.shields.io/badge/npm-@tty-pt/lemma-CB3837?logo=npm)](npm/README.md)
 [![C99](https://img.shields.io/badge/C-C99-555?logo=c)](#)
 [![BSD-2-Clause](https://img.shields.io/badge/License-BSD--2--Clause-blue)](#)
 [![FTS tokenizer](https://img.shields.io/badge/FTS-tokenizer-16A34A)](#)
@@ -117,12 +117,12 @@ sudo make install     # install headers and library to system
 
 ---
 
-## 6. JavaScript & WebAssembly Bindings (@ttypt/lemma)
+## 6. JavaScript & WebAssembly Bindings (@tty-pt/lemma)
 
 Official Node.js and Browser WebAssembly bindings are colocated in [`npm/`](npm/README.md):
 - **Unicode Case Folding**: Accurate case folding preserving language diacritics (`Pão` $\rightarrow$ `pão`, `Straße` $\rightarrow$ `straße`).
 - **Instant Search-as-You-Type**: Runs in browser inputs via pre-compiled WebAssembly (`dist/lemma.wasm`) with sub-millisecond execution.
-- **C Development Headers**: Install via `npm install @ttypt/lemma` and consume headers from `node_modules/@ttypt/lemma/include`.
+- **C Development Headers**: Install via `npm install @tty-pt/lemma` and consume headers from `node_modules/@tty-pt/lemma/include`.
 
 👉 *For complete TypeScript usage, lexical search guides, and API reference, see [npm/README.md](npm/README.md).*
 
