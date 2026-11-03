@@ -1,16 +1,15 @@
-## [1.2.0]
+## [1.2.2] - 2026-11-03
 
-- **Lossless Subword Tokenizer (`src/tok.c`, `<ttypt/lemma.h>`)**:
+- **Lossless Subword Tokenizer & HTOK Token Ingestion (`src/tok.c`, `<ttypt/lemma.h>`)**:
   - Added subword tokenization engine (`lemma_tok_encode`, `lemma_tok_decode`, `lemma_tok_stream`) providing lossless tokenization and zero-copy string reconstruction.
   - Bundled static BPE/unigram vocabulary base (`data/vocab.txt`, `src/vocab_base.h`).
-- **3-Gram Substring Indexing**:
-  - Character 3-gram trigram inverted indexing for fast subword and mid-word search.
-- **Redundant `doc_hd` Elimination**:
-  - Eliminated the separate document map (`doc_hd`) in favor of direct token array storage and interned terms, cutting memory consumption and cache misses.
-- **HTOK Lossless Token Ingestion (`rec_axis_store_typed`)**:
-  - Added support for lossless token array ingestion compatible with `libhyle-source` `.tok` containers.
-- **Linker Purity & Portable Build**:
-  - Removed hardcoded `/home/` and `-Wl,-rpath` linker paths.
+  - Added 3-gram character trigram inverted indexing for fast subword and mid-word search.
+  - Added support for lossless token array ingestion compatible with `libhyle-source` `.tok` containers (`rec_axis_store_typed`).
+- **Standalone `@tty-pt/lemma` Package & WebAssembly Engine**:
+  - Published `@tty-pt/lemma` providing Node-API native bindings and pure WebAssembly fallback (`lemma.wasm`).
+  - Added `npm/wasm/lemma_wasm.c` exposing `lemma_wasm_tokenize` and `lemma_fold` using `ISO_EXPORT`.
+  - Adopted strict `peerDependencies` (`@tty-pt/stele: ">=1.5.0"`, `@tty-pt/corm: ">=2.2.0"`) and `devDependencies` (`@tty-pt/stele: "^1.5.2"`, `@tty-pt/corm: "^2.2.4"`).
+  - Migrated build to centralized `make wasm` in `external/mk/include.mk` with post-link `wasm-opt -O3` optimization (dropping binary size from 135 KB to 119 KB).
 
 ## [1.0.0]
 

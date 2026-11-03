@@ -1,84 +1,66 @@
-import { createRequire } from "node:module";
-import path from "node:path";
+import { loadWasmModule, loadNativeAddon, getSubstrate } from "@tty-pt/stele";
 
-let nativeBinding = null;
-try {
-  const req = createRequire(import.meta.url);
-  nativeBinding = req("../build/Release/lemma_node.node");
-} catch {
-  try {
-    const req = createRequire(import.meta.url);
-    nativeBinding = req(path.join(process.cwd(), "build/Release/lemma_node.node"));
-  } catch {
-    // Native addon not available; JS fallback
-  }
-}
+const nativeBinding = loadNativeAddon(import.meta.url, "lemma");
+let wasmInstance = null;
 
-function getSharedWasm() {
-  if (globalThis.__ttypt_shared_wasm__) {
-    return globalThis.__ttypt_shared_wasm__;
-  }
-  try {
-    const req = createRequire(import.meta.url);
-    const qsysPaths = [
-      path.join(path.dirname(import.meta.url.replace("file://", "")), "../../libqsys/npm/dist/index.js"),
-      path.join(process.cwd(), "node_modules/@ttypt/qsys/dist/index.js"),
-      "@ttypt/qsys"
-    ];
-    for (const p of qsysPaths) {
-      try {
-        const mod = req(p);
-        if (mod && mod.getSharedWasm) {
-          return mod.getSharedWasm();
-        }
-      } catch {}
-    }
-  } catch {}
-  return null;
+export function getLemmaWasm() {
+  if (wasmInstance) return wasmInstance;
+  wasmInstance = loadWasmModule(new URL("./lemma.wasm", import.meta.url));
+  return wasmInstance;
 }
 
 /**
- * Folds Unicode accents using liblemma's C engine (e.g. "pão" -> "pao")
+ * Folds Unicode accents strictly using liblemma's C engine via WebAssembly (e.g. "pão" -> "pao")
  */
 export function foldAccents(text) {
   if (!text) return "";
   if (nativeBinding && nativeBinding.fold) {
     return nativeBinding.fold(text);
   }
-  const wasm = getSharedWasm();
-  if (wasm) {
-    const inBytes = Buffer.from(text + "\0", "utf8");
-    const inPtr = wasm.malloc(inBytes.length);
-    new Uint8Array(wasm.memory.buffer).set(inBytes, inPtr);
-    const outCap = inBytes.length * 4 + 64;
-    const outPtr = wasm.malloc(outCap);
-    const written = wasm.lemma_fold(outPtr, outCap, inPtr);
-    let res = text;
-    if (written >= 0) {
-      res = Buffer.from(new Uint8Array(wasm.memory.buffer, outPtr, written)).toString("utf8");
-    }
-    wasm.free(inPtr);
-    wasm.free(outPtr);
+  const wasm = getLemmaWasm();
+  const substrate = getSubstrate();
+  return substrate.withString(text, (inPtr) => {
+    const outCap = text.length * 4 + 64;
+    const outPtr = wasm.exports.malloc(outCap);
+    const written = wasm.exports.lemma_fold(outPtr, outCap, inPtr);
+    const res = substrate.readString(outPtr, written >= 0 ? written : 0);
+    wasm.exports.free(outPtr);
     return res;
-  }
-  // Pure JS fallback
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  });
 }
 
 /**
- * Tokenizes text into normalized words using liblemma case-folding
+ * Tokenizes text into word units strictly using liblemma's C engine via WebAssembly
  */
 export function tokenize(text) {
   if (!text) return [];
+  if (nativeBinding && nativeBinding.tokenize) {
+    return nativeBinding.tokenize(text);
+  }
   const normalized = foldAccents(text);
-  return normalized
-    .replace(/[^\w\s\u00C0-\u017F]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
+  const wasm = getLemmaWasm();
+  const mem = wasm.exports.memory || getSubstrate().memory;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+
+  const inBytes = enc.encode(normalized + "\0");
+  const inPtr = wasm.exports.malloc(inBytes.length);
+  new Uint8Array(mem.buffer, inPtr, inBytes.length).set(inBytes);
+
+  const outCap = inBytes.length * 4 + 128;
+  const outPtr = wasm.exports.malloc(outCap);
+  wasm.exports.lemma_wasm_tokenize(inPtr, outPtr, outCap);
+  let len = 0;
+  const mem8 = new Uint8Array(mem.buffer);
+  while (mem8[outPtr + len] !== 0) len++;
+  const rawTokens = dec.decode(new Uint8Array(mem.buffer, outPtr, len));
+  wasm.exports.free(inPtr);
+  wasm.exports.free(outPtr);
+  return rawTokens.split("\n").filter(Boolean);
 }
 
 /**
- * Simple in-memory BM25 lexical index
+ * In-memory BM25 lexical index
  */
 export class LemmaIndex {
   constructor() {
