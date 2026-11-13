@@ -1,3 +1,9 @@
+## [1.3.1] - 2026-11-13
+
+- **Freestanding WASM Reactor & Disjoint Global-Base (`lemma.wasm`)**:
+  - Eliminated `stdio`/WASI imports in `src/token.c` and rebuilt `lemma.wasm` as a pure shared-memory reactor at `--global-base=1310720`.
+  - Upgraded `@tty-pt/corm` to `>=2.3.2` (`^2.3.2`) and `@tty-pt/stele` to `>=1.6.1` (`^1.6.1`).
+
 ## [1.3.0] - 2026-11-13
 
 - **Substrate & Corm v2.3.1 Alignment**:
