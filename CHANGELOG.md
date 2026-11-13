@@ -1,3 +1,9 @@
+## [1.3.2] - 2026-11-13
+
+- **Packaging**:
+  - Requires `@tty-pt/corm` >=2.3.3 (`^2.3.3`) and `@tty-pt/stele` >=1.6.2 (`^1.6.2`).
+  - The npm tarball is built once by CI, with a self-contained native addon per platform (`prebuilds/<os>-<cpu>/`) next to `lemma.wasm`, and published as verified.
+
 ## [1.3.1] - 2026-11-13
 
 - **Freestanding WASM Reactor & Disjoint Global-Base (`lemma.wasm`)**:
