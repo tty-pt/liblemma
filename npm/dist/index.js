@@ -12,9 +12,9 @@ export function getLemmaWasm() {
 /**
  * Folds Unicode accents strictly using liblemma's C engine via WebAssembly (e.g. "pão" -> "pao")
  */
-export function foldAccents(text) {
+export function foldAccents(text, options = {}) {
   if (!text) return "";
-  if (nativeBinding && nativeBinding.fold) {
+  if (!options.wasm && nativeBinding && nativeBinding.fold) {
     return nativeBinding.fold(text);
   }
   const wasm = getLemmaWasm();
@@ -32,31 +32,25 @@ export function foldAccents(text) {
 /**
  * Tokenizes text into word units strictly using liblemma's C engine via WebAssembly
  */
-export function tokenize(text) {
+export function tokenize(text, options = {}) {
   if (!text) return [];
-  if (nativeBinding && nativeBinding.tokenize) {
+  if (!options.wasm && nativeBinding && nativeBinding.tokenize) {
     return nativeBinding.tokenize(text);
   }
-  const normalized = foldAccents(text);
+  const normalized = foldAccents(text, options);
   const wasm = getLemmaWasm();
-  const mem = wasm.exports.memory || getSubstrate().memory;
-  const enc = new TextEncoder();
-  const dec = new TextDecoder();
-
-  const inBytes = enc.encode(normalized + "\0");
-  const inPtr = wasm.exports.malloc(inBytes.length);
-  new Uint8Array(mem.buffer, inPtr, inBytes.length).set(inBytes);
-
-  const outCap = inBytes.length * 4 + 128;
-  const outPtr = wasm.exports.malloc(outCap);
-  wasm.exports.lemma_wasm_tokenize(inPtr, outPtr, outCap);
-  let len = 0;
-  const mem8 = new Uint8Array(mem.buffer);
-  while (mem8[outPtr + len] !== 0) len++;
-  const rawTokens = dec.decode(new Uint8Array(mem.buffer, outPtr, len));
-  wasm.exports.free(inPtr);
-  wasm.exports.free(outPtr);
-  return rawTokens.split("\n").filter(Boolean);
+  const substrate = getSubstrate();
+  return substrate.withString(normalized, (inPtr) => {
+    const outCap = normalized.length * 4 + 128;
+    const outPtr = wasm.exports.malloc(outCap);
+    try {
+      wasm.exports.lemma_wasm_tokenize(inPtr, outPtr, outCap);
+      const rawTokens = substrate.readString(outPtr);
+      return rawTokens.split("\n").filter(Boolean);
+    } finally {
+      wasm.exports.free(outPtr);
+    }
+  });
 }
 
 /**

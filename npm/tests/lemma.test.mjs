@@ -25,3 +25,13 @@ test("tokenize and LemmaIndex search", () => {
   assert.ok(results.some((r) => r.id === 1));
   assert.ok(results.some((r) => r.id === 3));
 });
+
+test("foldAccents and tokenize execute via pure WebAssembly substrate path ({ wasm: true })", () => {
+  assert.equal(foldAccents("Pão", { wasm: true }), "pão");
+  assert.equal(foldAccents("ÉTÉ", { wasm: true }), "été");
+  assert.equal(foldAccents("Straße", { wasm: true }), "straße");
+  assert.equal(foldAccents("Café", { wasm: true }), "café");
+
+  const tokens = tokenize("O Pão na padaria de Évora!", { wasm: true });
+  assert.deepEqual(tokens, ["o", "pão", "na", "padaria", "de", "évora"]);
+});

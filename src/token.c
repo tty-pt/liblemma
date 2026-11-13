@@ -1,7 +1,29 @@
-#include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 #include "ttypt/lemma.h"
+
+static int is_ascii_alnum(unsigned char c)
+{
+	return (c >= '0' && c <= '9') ||
+	       (c >= 'A' && c <= 'Z') ||
+	       (c >= 'a' && c <= 'z');
+}
+
+static void str_copy_bounded(char *dst, size_t dst_sz, const char *src)
+{
+	size_t len;
+
+	if (!dst || dst_sz == 0)
+		return;
+	if (!src) {
+		dst[0] = '\0';
+		return;
+	}
+	len = strlen(src);
+	if (len >= dst_sz)
+		len = dst_sz - 1;
+	memcpy(dst, src, len);
+	dst[len] = '\0';
+}
 
 /* Fold a UTF-8 string to lowercase, preserving accents (accent-sensitive
  * search). ASCII A-Z and the Latin-1 Supplement uppercase letters
@@ -64,14 +86,14 @@ void lemma_tokenize(
 		const char *start = p;
 		unsigned char c = (unsigned char)*p;
 
-		if (!isalnum(c) && c < 0x80) {
+		if (!is_ascii_alnum(c) && c < 0x80) {
 			p++;
 			continue;
 		}
 		while (*p) {
 			unsigned char w = (unsigned char)*p;
 
-			if (!isalnum(w) && w < 0x80)
+			if (!is_ascii_alnum(w) && w < 0x80)
 				break;
 			p++;
 		}
@@ -156,7 +178,7 @@ int lemma_list_normalize(const char *input, char *out, size_t out_sz)
 
 	copy[0] = '\0';
 	if (input && input[0])
-		snprintf(copy, sizeof(copy), "%s", input);
+		str_copy_bounded(copy, sizeof(copy), input);
 	out[0] = '\0';
 	if (!copy[0])
 		return 0;
@@ -164,7 +186,7 @@ int lemma_list_normalize(const char *input, char *out, size_t out_sz)
 	tok = strtok_r(copy, "\r\n", &saveptr);
 	while (tok) {
 		char t[256];
-		snprintf(t, sizeof(t), "%s", tok);
+		str_copy_bounded(t, sizeof(t), tok);
 		str_trim_internal(t);
 		if (t[0])
 			lemma_list_append(out, out_sz, t);
