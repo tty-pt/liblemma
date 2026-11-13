@@ -1,7 +1,7 @@
 ## [1.3.0] - 2026-11-13
 
-- **Substrate & Corm v2.3.0 Alignment**:
-  - Upgraded dependencies to @tty-pt/corm@^2.3.0 (>=2.3.0) and @tty-pt/stele@^1.6.0 (>=1.6.0).
+- **Substrate & Corm v2.3.1 Alignment**:
+  - Upgraded dependencies to @tty-pt/corm@^2.3.1 (>=2.3.1) and @tty-pt/stele@^1.6.0 (>=1.6.0).
   - Maintained lossless tokenization and subword search on shared linear memory.
 
 ## [1.2.2] - 2026-11-03
