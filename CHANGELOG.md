@@ -1,3 +1,11 @@
+## [1.4.0] - 2026-11-14
+
+- **Complete Node-API Bindings & HTOK v4 UTF-8 Text Indexing (`src/liblemma.c`, `npm/native/lemma_napi.c`, `npm/dist/index.js`)**:
+  - Added HTOK v4 `type_tag == 2` (`CORM_HTOK_TYPE_UTF8`) text field indexing in `lemma_store_typed` alongside varint token arrays, and preserved `CORM_AXIS_PRIMARY` pointer lifetime across primary-seeded rebuilds.
+  - Bound `tokenize`, `open`/`close`/`clear`, `index`/`indexRef`/`unindex`/`unindexRef`, `storeTyped`, `fillTokens`, `rank`, `search`, and `tokEncode`/`tokDecode` in `lemma_napi.c`.
+  - Removed JS `Map` fallback in `LemmaIndex` and exported `encodeTokens`/`decodeTokens`.
+  - Requires `@tty-pt/corm` >=2.4.0 (`^2.4.0`) and `@tty-pt/stele` >=1.7.0 (`^1.7.0`).
+
 ## [1.3.2] - 2026-11-13
 
 - **Packaging**:

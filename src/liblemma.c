@@ -516,6 +516,14 @@ static int lemma_store_typed(void *ctx, const char *spec, rec_ref_t ref,
 						free(dec);
 						free(tokens);
 					}
+				} else if (field_id == 0 && type_tag == 2 && data_len > 0) {
+					char *utf8 = malloc(data_len + 1);
+					if (utf8) {
+						memcpy(utf8, p, data_len);
+						utf8[data_len] = '\0';
+						lemma_index(db, LEMMA_AXIS_TEXT_FIELD, rid, utf8);
+						free(utf8);
+					}
 				}
 				p += data_len;
 			}
@@ -1382,7 +1390,7 @@ void *rec_axis_open(const char *spec)
 
 			snprintf(rs, sizeof(rs), "%s.roster", eprim);
 			if (stat(rs, &st) == 0)
-				primary = strdup(eprim);
+				primary = (char *)eprim;
 			else
 				fprintf(stderr,
 					"lemma: CORM_AXIS_PRIMARY '%s' has no "
@@ -1480,7 +1488,8 @@ void *rec_axis_open(const char *spec)
 						"%.2f ms\n", docs, ms);
 			}
 		}
-		free(primary);
+		if (primary && primary != eprim)
+			free(primary);
 		free(tmp);
 		return db;
 	}
