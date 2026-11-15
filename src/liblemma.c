@@ -1391,7 +1391,7 @@ void *rec_axis_open(const char *spec)
 			snprintf(rs, sizeof(rs), "%s.roster", eprim);
 			if (stat(rs, &st) == 0)
 				primary = (char *)eprim;
-			else
+			else if (!getenv("CORM_QUIET"))
 				fprintf(stderr,
 					"lemma: CORM_AXIS_PRIMARY '%s' has no "
 					"'%s'; falling back to the directory "
@@ -1432,22 +1432,24 @@ void *rec_axis_open(const char *spec)
 			 * no primary (existing warn); two+ without the env =
 			 * loud warn, stay empty (not the wrong primary). */
 			if (nroster > 1) {
-				fprintf(stderr,
-					"lemma: %d roster sidecars in '%s'; "
-					"cannot pick a primary (set "
-					"CORM_AXIS_PRIMARY to one DB); text "
-					"queries stay empty\n",
-					nroster, dir);
+				if (!getenv("CORM_QUIET"))
+					fprintf(stderr,
+						"lemma: %d roster sidecars in '%s'; "
+						"cannot pick a primary (set "
+						"CORM_AXIS_PRIMARY to one DB); text "
+						"queries stay empty\n",
+						nroster, dir);
 				free(primary);
 				primary = NULL;
 			}
 		}
 
 		if (!primary && nroster == 0) {
-			fprintf(stderr,
-				"lemma: no primary found in '%s' (no *.roster "
-				"sidecar); text queries stay empty\n",
-				dir);
+			if (!getenv("CORM_QUIET"))
+				fprintf(stderr,
+					"lemma: no primary found in '%s' (no *.roster "
+					"sidecar); text queries stay empty\n",
+					dir);
 		} else {
 			const char *vt = getenv("CORM_AXIS_VTYPE");
 			int is_blob = (vt && *vt == 'b');
@@ -1456,9 +1458,10 @@ void *rec_axis_open(const char *spec)
 			hd = corm_open(primary, "hd", CM_HNDL, vtype,
 					pmask, CM_AINDEX | CM_MIRROR);
 			if (!hd) {
-				fprintf(stderr,
-					"lemma: cannot open primary '%s'\n",
-					primary);
+				if (!getenv("CORM_QUIET"))
+					fprintf(stderr,
+						"lemma: cannot open primary '%s'\n",
+						primary);
 			} else {
 				clock_gettime(CLOCK_MONOTONIC, &t0);
 				cur = corm_iter(hd, NULL, 0);
