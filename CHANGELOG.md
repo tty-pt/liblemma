@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.4.2] - 2026-11-15
 
 - **Quiet Cold-Start Probing & Standalone Prebuild RPATH (`src/liblemma.c`, `npm/package.json`)**:
   - Gated all remaining `rec_axis_open` stderr warnings (`CORM_AXIS_PRIMARY` missing `.roster`, multiple `.roster` sidecars, no `.roster` sidecar, `corm_open` failure) on `!getenv("CORM_QUIET")`.
