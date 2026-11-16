@@ -42,6 +42,7 @@
   - Added subword tokenization engine (`lemma_tok_encode`, `lemma_tok_decode`, `lemma_tok_stream`) providing lossless tokenization and zero-copy string reconstruction.
   - Bundled static BPE/unigram vocabulary base (`data/vocab.txt`, `src/vocab_base.h`).
   - Added 3-gram character trigram inverted indexing for fast subword and mid-word search.
+  - Eliminated the separate document map (`doc_hd`) in favor of direct token array storage and interned terms, cutting memory consumption and cache misses.
   - Added support for lossless token array ingestion compatible with `libhyle-source` `.tok` containers (`rec_axis_store_typed`).
 - **Standalone `@tty-pt/lemma` Package & WebAssembly Engine**:
   - Published `@tty-pt/lemma` providing Node-API native bindings and pure WebAssembly fallback (`lemma.wasm`).
