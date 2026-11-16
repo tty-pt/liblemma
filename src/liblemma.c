@@ -516,6 +516,14 @@ static int lemma_store_typed(void *ctx, const char *spec, rec_ref_t ref,
 						free(dec);
 						free(tokens);
 					}
+				} else if (field_id == 0 && type_tag == 2 && data_len > 0) {
+					char *utf8 = malloc(data_len + 1);
+					if (utf8) {
+						memcpy(utf8, p, data_len);
+						utf8[data_len] = '\0';
+						lemma_index(db, LEMMA_AXIS_TEXT_FIELD, rid, utf8);
+						free(utf8);
+					}
 				}
 				p += data_len;
 			}
@@ -1382,8 +1390,8 @@ void *rec_axis_open(const char *spec)
 
 			snprintf(rs, sizeof(rs), "%s.roster", eprim);
 			if (stat(rs, &st) == 0)
-				primary = strdup(eprim);
-			else
+				primary = (char *)eprim;
+			else if (!getenv("CORM_QUIET"))
 				fprintf(stderr,
 					"lemma: CORM_AXIS_PRIMARY '%s' has no "
 					"'%s'; falling back to the directory "
@@ -1424,22 +1432,24 @@ void *rec_axis_open(const char *spec)
 			 * no primary (existing warn); two+ without the env =
 			 * loud warn, stay empty (not the wrong primary). */
 			if (nroster > 1) {
-				fprintf(stderr,
-					"lemma: %d roster sidecars in '%s'; "
-					"cannot pick a primary (set "
-					"CORM_AXIS_PRIMARY to one DB); text "
-					"queries stay empty\n",
-					nroster, dir);
+				if (!getenv("CORM_QUIET"))
+					fprintf(stderr,
+						"lemma: %d roster sidecars in '%s'; "
+						"cannot pick a primary (set "
+						"CORM_AXIS_PRIMARY to one DB); text "
+						"queries stay empty\n",
+						nroster, dir);
 				free(primary);
 				primary = NULL;
 			}
 		}
 
 		if (!primary && nroster == 0) {
-			fprintf(stderr,
-				"lemma: no primary found in '%s' (no *.roster "
-				"sidecar); text queries stay empty\n",
-				dir);
+			if (!getenv("CORM_QUIET"))
+				fprintf(stderr,
+					"lemma: no primary found in '%s' (no *.roster "
+					"sidecar); text queries stay empty\n",
+					dir);
 		} else {
 			const char *vt = getenv("CORM_AXIS_VTYPE");
 			int is_blob = (vt && *vt == 'b');
@@ -1448,9 +1458,10 @@ void *rec_axis_open(const char *spec)
 			hd = corm_open(primary, "hd", CM_HNDL, vtype,
 					pmask, CM_AINDEX | CM_MIRROR);
 			if (!hd) {
-				fprintf(stderr,
-					"lemma: cannot open primary '%s'\n",
-					primary);
+				if (!getenv("CORM_QUIET"))
+					fprintf(stderr,
+						"lemma: cannot open primary '%s'\n",
+						primary);
 			} else {
 				clock_gettime(CLOCK_MONOTONIC, &t0);
 				cur = corm_iter(hd, NULL, 0);
@@ -1476,11 +1487,13 @@ void *rec_axis_open(const char *spec)
 				ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0
 					+ (double)(t1.tv_nsec - t0.tv_nsec)
 					/ 1000000.0;
-				fprintf(stderr, "lemma: rebuilt %zu docs in "
-						"%.2f ms\n", docs, ms);
+				if (docs > 0 && !getenv("CORM_QUIET"))
+					fprintf(stderr, "lemma: rebuilt %zu docs in "
+							"%.2f ms\n", docs, ms);
 			}
 		}
-		free(primary);
+		if (primary && primary != eprim)
+			free(primary);
 		free(tmp);
 		return db;
 	}

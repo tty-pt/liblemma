@@ -1,3 +1,41 @@
+## [1.4.2] - 2026-11-15
+
+- **Quiet Cold-Start Probing & Standalone Prebuild RPATH (`src/liblemma.c`, `npm/package.json`)**:
+  - Gated all remaining `rec_axis_open` stderr warnings (`CORM_AXIS_PRIMARY` missing `.roster`, multiple `.roster` sidecars, no `.roster` sidecar, `corm_open` failure) on `!getenv("CORM_QUIET")`.
+  - Updated `npm/package.json` `build:native` RPATH for standalone prebuild resolution and `prebuilds/linux-x64/lemma.node` sync.
+
+## [1.4.1] - 2026-11-14
+
+- **Diagnostics Gating & Packaging (`src/liblemma.c`, `npm/package.json`)**:
+  - Gated `rec_axis_open` diagnostic logging on `CORM_QUIET` so cold-start database initialization does not emit spurious stderr messages.
+  - Explicitly included `"prebuilds"` in `npm/package.json` `"files"`.
+
+## [1.4.0] - 2026-11-14
+
+- **Complete Node-API Bindings & HTOK v4 UTF-8 Text Indexing (`src/liblemma.c`, `npm/native/lemma_napi.c`, `npm/dist/index.js`)**:
+  - Added HTOK v4 `type_tag == 2` (`CORM_HTOK_TYPE_UTF8`) text field indexing in `lemma_store_typed` alongside varint token arrays, and preserved `CORM_AXIS_PRIMARY` pointer lifetime across primary-seeded rebuilds.
+  - Bound `tokenize`, `open`/`close`/`clear`, `index`/`indexRef`/`unindex`/`unindexRef`, `storeTyped`, `fillTokens`, `rank`, `search`, and `tokEncode`/`tokDecode` in `lemma_napi.c`.
+  - Removed JS `Map` fallback in `LemmaIndex` and exported `encodeTokens`/`decodeTokens`.
+  - Requires `@tty-pt/corm` >=2.4.0 (`^2.4.0`) and `@tty-pt/stele` >=1.7.0 (`^1.7.0`).
+
+## [1.3.2] - 2026-11-13
+
+- **Packaging**:
+  - Requires `@tty-pt/corm` >=2.3.3 (`^2.3.3`) and `@tty-pt/stele` >=1.6.2 (`^1.6.2`).
+  - The npm tarball is built once by CI, with a self-contained native addon per platform (`prebuilds/<os>-<cpu>/`) next to `lemma.wasm`, and published as verified.
+
+## [1.3.1] - 2026-11-13
+
+- **Freestanding WASM Reactor & Disjoint Global-Base (`lemma.wasm`)**:
+  - Eliminated `stdio`/WASI imports in `src/token.c` and rebuilt `lemma.wasm` as a pure shared-memory reactor at `--global-base=1310720`.
+  - Upgraded `@tty-pt/corm` to `>=2.3.2` (`^2.3.2`) and `@tty-pt/stele` to `>=1.6.1` (`^1.6.1`).
+
+## [1.3.0] - 2026-11-13
+
+- **Substrate & Corm v2.3.1 Alignment**:
+  - Upgraded dependencies to @tty-pt/corm@^2.3.1 (>=2.3.1) and @tty-pt/stele@^1.6.0 (>=1.6.0).
+  - Maintained lossless tokenization and subword search on shared linear memory.
+
 ## [1.2.2] - 2026-11-03
 
 - **Lossless Subword Tokenizer & HTOK Token Ingestion (`src/tok.c`, `<ttypt/lemma.h>`)**:
